@@ -52,13 +52,38 @@ def _extract_json(text: str) -> Any:
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text)
     # Some reasoning models emit <think>...</think> first.
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
-    start, end = text.find("{"), text.rfind("}")
-    if start < 0 or end < start:
+    start = text.find("{")
+    if start < 0:
         raise ModelOutputError("no JSON object in model output")
     try:
-        return json.loads(text[start:end + 1])
+        # First complete JSON object; anything the model appends afterwards is ignored.
+        obj, _ = json.JSONDecoder().raw_decode(text[start:])
+        return obj
     except json.JSONDecodeError as exc:
         raise ModelOutputError(f"malformed JSON: {exc}") from exc
+
+
+def answer_schema(ev_before: list[dict], ev_after: list[dict]) -> dict:
+    """JSON schema for constrained decoding: each side may only cite its own snippet IDs."""
+    def side(ids: list[str]) -> dict:
+        if not ids:
+            return {"type": "object", "properties": {"status": {"type": "string", "enum": ["insufficient_evidence"]},
+                                                      "statements": {"type": "array", "maxItems": 0, "items": {"type": "object"}}},
+                    "required": ["status", "statements"], "additionalProperties": False}
+        return {"type": "object", "properties": {
+            "status": {"type": "string", "enum": ["answered", "insufficient_evidence"]},
+            "statements": {"type": "array", "maxItems": 6, "items": {"type": "object", "properties": {
+                "text": {"type": "string"},
+                "snippet_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ids}}},
+                "required": ["text", "snippet_ids"], "additionalProperties": False}}},
+            "required": ["status", "statements"], "additionalProperties": False}
+    a, b = [s["id"] for s in ev_before], [s["id"] for s in ev_after]
+    change = {"anyOf": [{"type": "null"}, {"type": "object", "properties": {
+        "text": {"type": "string"},
+        "snippet_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": a + b}}},
+        "required": ["text", "snippet_ids"], "additionalProperties": False}]} if a + b else {"type": "null"}
+    return {"type": "object", "properties": {"before": side(a), "after": side(b), "change": change},
+            "required": ["before", "after", "change"], "additionalProperties": False}
 
 
 def validate_output(raw: Any, ev_before: list[dict], ev_after: list[dict]) -> dict:
@@ -114,20 +139,40 @@ def _citation(snippet: dict) -> dict:
 class OpenAICompatClient:
     """Minimal OpenAI-compatible chat client (works with NVIDIA NIM / Nemotron, vLLM, Ollama...)."""
 
-    def __init__(self, base_url: str, model: str, api_key: str = "", timeout: float = 45.0) -> None:
+    def __init__(self, base_url: str, model: str, api_key: str = "", timeout: float = 120.0,
+                 max_tokens: int = 6000, extra_body: dict | None = None, structured: bool = True) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.api_key = api_key
         self.timeout = timeout
+        self.max_tokens = max_tokens
+        self.extra_body = extra_body or {}
+        self.last_usage: dict | None = None
+        self.structured = structured
 
-    def __call__(self, messages: list[dict]) -> str:
+    def __call__(self, messages: list[dict], schema: dict | None = None) -> str:
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
-        body = {"model": self.model, "messages": messages, "temperature": 0.0, "max_tokens": 1200}
+        body = {"model": self.model, "messages": messages, "temperature": 0.0, "max_tokens": self.max_tokens,
+                **self.extra_body}
+        if schema is not None and self.structured:
+            body["response_format"] = {"type": "json_schema", "json_schema": {"name": "answer", "strict": True, "schema": schema}}
         r = httpx.post(f"{self.base_url}/chat/completions", json=body, headers=headers, timeout=self.timeout)
+        if r.status_code == 400 and "response_format" in body:
+            # Endpoint without structured-output support: retry once unconstrained (validation still applies).
+            self.structured = False
+            body.pop("response_format")
+            r = httpx.post(f"{self.base_url}/chat/completions", json=body, headers=headers, timeout=self.timeout)
         r.raise_for_status()
-        return r.json()["choices"][0]["message"]["content"]
+        data = r.json()
+        self.last_usage = data.get("usage")
+        choice = data["choices"][0]
+        # Reasoning models (vLLM: "reasoning"/"reasoning_content") keep thoughts out of "content".
+        content = choice["message"].get("content")
+        if not content:
+            raise ModelOutputError(f"empty content (finish_reason={choice.get('finish_reason')})")
+        return content
 
 
 def synthesize(question: str, before: dict | None, after: dict | None, ev_before: list[dict], ev_after: list[dict],
@@ -135,10 +180,17 @@ def synthesize(question: str, before: dict | None, after: dict | None, ev_before
     if llm is None:
         return {"status": "generation_disabled", "answer": None}
     try:
-        text = llm(build_messages(question, before, after, ev_before, ev_after))
+        messages = build_messages(question, before, after, ev_before, ev_after)
+        if isinstance(llm, OpenAICompatClient):
+            text = llm(messages, answer_schema(ev_before, ev_after))
+        else:
+            text = llm(messages)
+    except ModelOutputError as exc:
+        return {"status": "model_output_rejected", "answer": None, "error": str(exc)}
     except Exception as exc:  # timeouts, HTTP errors, outages
         return {"status": "model_unavailable", "answer": None, "error": type(exc).__name__}
     try:
-        return {"status": "ok", "answer": validate_output(_extract_json(text), ev_before, ev_after)}
+        return {"status": "ok", "answer": validate_output(_extract_json(text), ev_before, ev_after),
+                "model": getattr(llm, "model", None)}
     except ModelOutputError as exc:
         return {"status": "model_output_rejected", "answer": None, "error": str(exc)}

@@ -7,7 +7,7 @@ wfLoadExtension( 'WikiTimeMachine' );
 $wgWikiTimeMachineServiceUrl = 'http://service:8000';
 // Snapshot/diff requests and model-backed /ask requests have separate timeouts.
 $wgWikiTimeMachineServiceTimeout = 15;
-$wgWikiTimeMachineAskTimeout = 75;
+$wgWikiTimeMachineAskTimeout = 150;
 
 // Read-only demo wiki.
 $wgEnableUploads = false;

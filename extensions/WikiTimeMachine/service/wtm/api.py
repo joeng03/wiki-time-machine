@@ -35,7 +35,10 @@ def _llm() -> Callable | None:
         return STATE["llm"] if callable(STATE["llm"]) else None
     cfg = settings()
     if cfg.llm_enabled:
-        return OpenAICompatClient(cfg.llm_base_url, cfg.llm_model, cfg.llm_api_key, cfg.llm_timeout)
+        import json as _json
+        extra = _json.loads(cfg.llm_extra_body) if cfg.llm_extra_body else {}
+        return OpenAICompatClient(cfg.llm_base_url, cfg.llm_model, cfg.llm_api_key, cfg.llm_timeout,
+                                  cfg.llm_max_tokens, extra, cfg.llm_structured)
     return None
 
 

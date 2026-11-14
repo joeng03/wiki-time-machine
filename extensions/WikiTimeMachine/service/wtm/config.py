@@ -24,7 +24,11 @@ class Settings:
     llm_base_url: str = field(default_factory=lambda: _env("WTM_LLM_BASE_URL"))
     llm_model: str = field(default_factory=lambda: _env("WTM_LLM_MODEL"))
     llm_api_key: str = field(default_factory=lambda: _env("WTM_LLM_API_KEY"))
-    llm_timeout: float = field(default_factory=lambda: float(_env("WTM_LLM_TIMEOUT", "45")))
+    llm_timeout: float = field(default_factory=lambda: float(_env("WTM_LLM_TIMEOUT", "120")))
+    llm_max_tokens: int = field(default_factory=lambda: int(_env("WTM_LLM_MAX_TOKENS", "6000")))
+    # JSON merged into the request body, e.g. {"chat_template_kwargs": {"enable_thinking": false}}
+    llm_structured: bool = field(default_factory=lambda: _env("WTM_LLM_STRUCTURED", "1") not in ("0", "false", "no"))
+    llm_extra_body: str = field(default_factory=lambda: _env("WTM_LLM_EXTRA_BODY", ""))
     sql_dir: str = field(default_factory=lambda: _env("WTM_SQL_DIR", "/app/sql"))
     retrieval_k: int = field(default_factory=lambda: int(_env("WTM_RETRIEVAL_K", "5")))
 

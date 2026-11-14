@@ -33,7 +33,10 @@ services:
       WTM_LLM_BASE_URL: ${WTM_LLM_BASE_URL:-}
       WTM_LLM_MODEL: ${WTM_LLM_MODEL:-}
       WTM_LLM_API_KEY: ${WTM_LLM_API_KEY:-}
-      WTM_LLM_TIMEOUT: ${WTM_LLM_TIMEOUT:-45}
+      WTM_LLM_TIMEOUT: ${WTM_LLM_TIMEOUT:-120}
+      WTM_LLM_MAX_TOKENS: ${WTM_LLM_MAX_TOKENS:-6000}
+      WTM_LLM_EXTRA_BODY: ${WTM_LLM_EXTRA_BODY:-}
+      WTM_LLM_STRUCTURED: ${WTM_LLM_STRUCTURED:-1}
       HF_HOME: /cache/hf
     volumes:
       - ./extensions/WikiTimeMachine/fixtures:/app/fixtures

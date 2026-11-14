@@ -351,7 +351,7 @@
 		api.get( {
 			action: 'wtmask', formatversion: 2, wiki: wikiOf(), page: $article.val(),
 			before: toUtc( $before.val() ), after: toUtc( $after.val() ), question: q
-		}, { timeout: 90000 } ).then( function ( res ) {
+		}, { timeout: 180000 } ).then( function ( res ) {
 			renderAnswer( res.wtmask );
 		}, function ( code, result ) {
 			$answer.empty().append( el( 'p', 'wtm-empty', mw.msg( 'wikitimemachine-compare-error', errorText( code, result ) ) ) );

@@ -40,3 +40,46 @@ def test_http_error_is_model_unavailable(monkeypatch):
     monkeypatch.setattr(answer.httpx, "post", fake_post)
     out = synthesize("q?", SIDE, SIDE, EV_A, EV_B, OpenAICompatClient("http://x/v1", "m"))
     assert out["status"] == "model_unavailable"
+
+
+def _ok_content():
+    return json.dumps({"before": {"status": "answered", "statements": [{"text": "x", "snippet_ids": ["A1"]}]},
+                       "after": {"status": "insufficient_evidence", "statements": []}, "change": None})
+
+
+def test_structured_schema_sent_and_trailing_text_ignored(monkeypatch):
+    bodies = []
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        bodies.append(json)
+        return httpx.Response(200, json={"choices": [{"message": {"content": _ok_content() + "\n{\"extra\": 1} trailing"}}]},
+                              request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(answer.httpx, "post", fake_post)
+    out = synthesize("q?", SIDE, SIDE, EV_A, EV_B, OpenAICompatClient("http://x/v1", "m"))
+    assert out["status"] == "ok"
+    schema = bodies[0]["response_format"]["json_schema"]["schema"]
+    assert schema["properties"]["before"]["properties"]["statements"]["items"]["properties"]["snippet_ids"]["items"]["enum"] == ["A1"]
+    assert schema["properties"]["after"]["properties"]["statements"]["items"]["properties"]["snippet_ids"]["items"]["enum"] == ["B1"]
+
+
+def test_structured_output_unsupported_falls_back(monkeypatch):
+    bodies = []
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        bodies.append(dict(json))
+        if "response_format" in json:
+            return httpx.Response(400, json={"error": "unsupported"}, request=httpx.Request("POST", url))
+        return httpx.Response(200, json={"choices": [{"message": {"content": _ok_content()}}]}, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(answer.httpx, "post", fake_post)
+    out = synthesize("q?", SIDE, SIDE, EV_A, EV_B, OpenAICompatClient("http://x/v1", "m"))
+    assert out["status"] == "ok" and len(bodies) == 2 and "response_format" not in bodies[1]
+
+
+def test_empty_content_rejected(monkeypatch):
+    monkeypatch.setattr(answer.httpx, "post", lambda url, **kw: httpx.Response(
+        200, json={"choices": [{"message": {"content": None, "reasoning": "..."}, "finish_reason": "length"}]},
+        request=httpx.Request("POST", url)))
+    out = synthesize("q?", SIDE, SIDE, EV_A, EV_B, OpenAICompatClient("http://x/v1", "m"))
+    assert out["status"] == "model_output_rejected" and "length" in out["error"]

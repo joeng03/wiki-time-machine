@@ -1,5 +1,18 @@
 # Wikipedia Time Machine — MediaWiki extension (Junction × MariaDB, BOTH track)
 
+**Upstream status:** independent MediaWiki extension prototype; not yet submitted
+to or accepted by Wikimedia. See [the contribution plan](CONTRIBUTING.md) for the
+Gerrit submission path and the separate requirements for deployment on Wikipedia.
+
+**Live demo:** [WikiTimeMachine on Fly.io](https://wiki-time-machine-joeng03.fly.dev/index.php/Special:WikiTimeMachine).
+Deployment and update instructions: [Fly.io deployment](docker/fly/README.md).
+
+Read: [why it matters](#why-this-matters) · [architecture](#architecture) ·
+[technical concepts](#technical-concepts) · [local setup](#quick-start-tested-commands) ·
+[examples](#demo-verified-on-the-shipped-real-data) · [data and API](#data-model-and-api) ·
+[Fly.io deployment](#deployment-on-flyio) · [results](#measured-results) ·
+[limitations](#incomplete--limitations-honest-status) · [upstream contribution](#contributing-to-mediawiki-and-wikimedia).
+
 Pick a Wikipedia article and two UTC moments, see the article **as it stood at each moment**, a
 deterministic diff, and ask **“what changed?”** — answered only from those two revisions, with
 permanent `oldid` links and the exact supporting excerpts.
@@ -17,6 +30,35 @@ permanent `oldid` links and the exact supporting excerpts.
 * **Real data:** public English Wikipedia revisions (Action API) for 5 articles, plus organizer datasets
   (MariaDB `mariadb-wikipedia-datasets`: **M** full-history Parquet adapter, **S** English corpus for ANN).
 
+## Why this matters
+
+A historical question has two parts: finding relevant information and making sure that information
+belongs to the requested moment. A passage can be highly relevant yet historically wrong for the
+question. For example, an explanation of Olkiluoto 3's commercial operation in April 2023 must not be
+used as evidence for what its Wikipedia article said in December 2021.
+
+WikiTimeMachine makes time part of evidence selection. It first resolves the article revision at each
+requested date, then searches only the passages belonging to that revision. The result is an inspectable
+chain: **requested date → revision → passage → citation → answer**. The paragraph diff works without
+an LLM, and each citation lets the reader inspect the original Wikipedia revision.
+
+The officeholder examples go further: they separate **when an event applied** from **when a document
+asserted it**. A June 15 article describing Sanna Marin as the current prime minister and a June 25
+article describing Petteri Orpo as current can give different answers about June 22. The earlier answer
+records the earlier article's assertion; it is not a claim that the article accurately predicted June 22.
+Preserving that distinction helps explain corrections, delayed updates, and changes in knowledge.
+
+For the MariaDB challenge, the contribution is the combination of native historical SQL, structured
+claims, and vector similarity in one database. Revision membership and time coverage stay in relational
+queries rather than being reconstructed from a separate vector store. This is a working demonstration
+on a bounded dataset, with measured query plans and reproducible fixtures; it does not establish
+Wikipedia-scale performance or guarantee the truth of generated answers.
+
+The same design could support historical policy documents, changing product manuals, or research
+archives. Those are possible applications of the architecture, not integrations implemented here.
+
+## Architecture
+
 ```
 Browser ──same-origin──▶ MediaWiki 1.43.11 (Special:WikiTimeMachine, api.php?action=wtm{articles,snapshot,compare,ask,claims})
                                │ server-side PHP ServiceClient (internal URL, timeouts)
@@ -30,13 +72,134 @@ Browser ──same-origin──▶ MediaWiki 1.43.11 (Special:WikiTimeMachine, a
                                            wiki_claim_snapshot (bitemporal: valid_period + SYSTEM_TIME) …
 ```
 
+| Component | Responsibility | Reason for the boundary |
+|---|---|---|
+| MediaWiki extension, PHP + ResourceLoader JavaScript/LESS | Special page, article/date controls, diff/evidence UI, MediaWiki API modules and messages | Integrates with MediaWiki's extension, configuration, permission and localisation mechanisms |
+| FastAPI service | Resolve snapshots, calculate text diffs, embed questions, retrieve evidence, validate generated output | Keeps Python parsing and inference dependencies out of PHP |
+| `wtm` command-line importer | Fetch/archive revisions, import Parquet, build embeddings and temporal projections, validate and publish | Expensive data preparation is an explicit operation rather than part of a web request |
+| MariaDB | MediaWiki's own schema plus the separate `wtm` archive, temporal tables, vectors and publication metadata | Stores source provenance and retrieval eligibility together |
+| MiniLM via ONNX Runtime | Turn text and questions into comparable vectors on CPU | Retrieval works without a paid embedding API or GPU |
+| Optional Nemotron endpoint | Extract tenure claims during preparation and synthesize answers at query time | Adds language generation while preserving deterministic diffs and source evidence when unavailable |
+
+Browser requests go to MediaWiki on the same origin. PHP calls FastAPI internally; the browser does
+not receive database credentials or the model API key. HTTP query code opens database connections
+with the SELECT-only reader account. Maintenance commands use the importer account. On the current
+demo Machine both credentials are configured for maintenance, so this is a connection-level role
+separation, not a separate isolated importer deployment.
+
+### A request from start to finish
+
+1. The user selects an article and two UTC moments. MediaWiki validates the inputs and forwards the request.
+2. FastAPI pins a published build, checks its known coverage, and resolves the two revision IDs using temporal SQL.
+3. For **Compare**, it reads the normalized sections and produces a deterministic paragraph/word diff.
+4. For **Ask**, it embeds the question and ranks eligible passages separately for the earlier and later revisions.
+5. If generation is enabled, the model receives labelled evidence (`A1…` and `B1…`) and returns structured statements
+   with citation IDs. The server validates the response and attaches stored excerpts and permanent revision links.
+6. MediaWiki renders the result. Unknown coverage, unavailable text, insufficient evidence and model failures have
+   explicit states rather than silently substituting a different revision.
+
+## Technical concepts
+
+### Revisions, snapshots, and coverage
+
+A **revision** is a saved article version with an ID and edit timestamp. A **snapshot at time T** is the
+latest applicable revision at or before T, within a history window that this project has verified.
+An `oldid` link identifies the saved revision; the requested time and the revision's save time can differ.
+
+Coverage is essential. Downloading a few revisions does not prove which one was current between them.
+For each captured window, the importer follows API continuation and records the predecessor before the
+window starts. Intervals use **[start, end)**: the start belongs to the interval, the end does not.
+At the exact next edit, the next revision takes over. UTC and a deterministic revision-ID tie-break
+handle timestamp boundaries consistently. Outside verified windows, the service returns `not_covered`.
+
+### System-versioned tables: asking a database about the past
+
+MariaDB system-versioned tables expose row history through `FOR SYSTEM_TIME AS OF`. Ordinarily their
+system period describes changes made to the database. Here the importer deliberately **backfills that
+period with Wikipedia's edit timeline**, so `AS OF '2021-12-15 …'` means the source article's state then.
+See MariaDB's [system-versioned tables reference](https://mariadb.com/docs/server/reference/sql-structure/temporal-tables/system-versioned-tables).
+
+This distinction matters: importing an old revision today must not make it appear to have originated
+today. The archive retains `ingested_at` separately, and build metadata records local publication.
+The backfilled system period is a source-history projection; it is not an audit of when this service
+first learned each fact. Explicit historical insertion is enabled only for importer sessions, and
+every projected interval is closed at the verified coverage end.
+
+### Bitemporal data: two independent dates in one question
+
+**Application time** expresses when a claim says a tenure applied. **System time in this projection**
+expresses when Wikipedia asserted that claim. Combining these periods makes the claims table
+bitemporal. MariaDB supports both periods in the same table; the project uses `AS OF` for the source
+view and date predicates for the tenure. See [bitemporal tables](https://mariadb.com/docs/server/reference/sql-structure/temporal-tables/bitemporal-tables).
+
+| Date | Example | Meaning |
+|---|---|---|
+| Source-view time, T | Wikipedia as of June 15 or June 25, 2023 | Which revision's assertions are eligible? |
+| Claimed valid date, D | June 22, 2023 | Which of those assertions covers the requested tenure date? |
+| Local ingestion time | When this demo downloaded the revision | Operational provenance, stored separately |
+
+The query is therefore **“According to Wikipedia at T, who did it say held the office on D?”**.
+A missing tenure claim means that the supported extraction from that revision did not supply one;
+it does not prove nobody held the office. Date precision and unknown/ongoing ends are stored explicitly.
+
+### Embeddings and cosine distance
+
+An **embedding** is a model-produced numeric representation of text. MiniLM maps a question and each
+passage into 384 numbers. Mean pooling combines token representations, and L2 normalization gives
+each vector unit length. MariaDB stores those vectors as `VECTOR(384)` and ranks passages using
+`VEC_DISTANCE_COSINE`: smaller distances indicate closer vector directions. Similarity is a relevance
+signal, not a factual confidence score. See the [MariaDB vector reference](https://mariadb.com/docs/server/reference/sql-structure/vectors/vector-overview).
+
+The project has two retrieval paths with different purposes:
+
+| Path | Eligible evidence | Search strategy | Used for historical answers? |
+|---|---|---|---|
+| Revision evidence | Passages joined to one exact resolved revision, parser version and embedding model | Exact cosine ranking over that eligible set | Yes |
+| Corpus topic search | Imported passages from the organizer S dataset | Approximate nearest-neighbour search using the native HNSW vector index | No |
+
+HNSW (Hierarchical Navigable Small World) searches a graph of vectors to find nearby candidates
+without comparing every vector. Its speed comes with a recall tradeoff: it can miss neighbours that
+an exhaustive search would find. That is why the benchmarks report recall against exact results.
+MariaDB uses a modified HNSW implementation for its vector index.
+[Implementation reference](https://mariadb.org/projects/mariadb-vector/).
+
+For historical answers, filtering **before** ranking is the key rule. Searching all revisions and then
+discarding future passages can leave too few results or miss the best eligible passages. The measured
+query plan uses a revision membership join and exact ranking. Merely declaring a vector index does
+not mean every similarity query uses it.
+
+### Retrieval-augmented generation and provenance
+
+**RAG** means retrieving source material before asking a language model to compose an answer.
+Here retrieval is also constrained by time. Each answer side has its own evidence IDs, revision ID,
+and stored excerpt. The server rejects malformed structures, unknown or wrong-side citation IDs, and
+uncited statements; it constructs source URLs itself rather than trusting model-generated links.
+
+These checks establish citation provenance and structural validity. They do **not** prove that every
+generated sentence follows logically from its citation, or erase knowledge already inside the model.
+Readers can inspect the excerpts, diff and original revisions. Claim extraction adds substring,
+holder, office and date checks, but still inherits source errors and extraction limitations.
+
+### Reproducible builds and atomic publication
+
+Raw wikitext is archived separately from derived text. Normalized passages are deduplicated by text
+hash, parser version and embedding model, so unchanged text can share an embedding across revisions.
+The membership table still records which revisions contain it; sharing storage never makes it
+eligible for a revision that did not contain it.
+
+A build is a versioned set of coverage and snapshot intervals. It is constructed and validated before
+the active-build pointer changes in a transaction. Query code pins the selected build so a comparison
+uses a consistent snapshot projection while another build is prepared. Claims have their own build
+linked to that snapshot build. Unchanged inputs reuse published results. This keeps partial imports
+and failed validation from becoming the public history.
+
 ## Pinned versions
 
 | component | version |
 |---|---|
 | MediaWiki core | git tag **1.43.11** (LTS) from `gerrit.wikimedia.org/r/mediawiki/core.git` (commit `0e3538fb0e48`) |
 | Vector skin | `REL1_43` (commit `f885ee1914ee`) |
-| PHP runtime | `mediawiki:1.43.11` Docker image (core checkout bind-mounted over it); composer `2.8.12` |
+| PHP runtime | `mediawiki:1.43.11`; local Compose bind-mounts the pinned core checkout, prepared with Composer `2.8.12`. Fly uses core, dependencies and bundled Vector from the official image |
 | MariaDB | `mariadb:11.8.9` (verified: VECTOR, VECTOR INDEX, `system_versioning_insert_history`) |
 | Python service | Python 3.12, FastAPI 0.115.6, PyMySQL 1.1.1, mwparserfromhell 0.6.6, onnxruntime 1.20.1 (see `requirements.txt`) |
 | Embeddings | `sentence-transformers/all-MiniLM-L6-v2` @ `1110a243fdf4` (official ONNX weights, mean-pool + L2, 384-d, CPU) |
@@ -64,7 +227,20 @@ re-extracts with the live model (≈7 min for the two officeholder articles) and
 
 Other commands: `make test` (Python DB tests + PHPUnit), `make test-e2e` (through MediaWiki on real data),
 `make fetch-demo` (live re-capture), `make corpus [LIMIT=1000]`, `make bench LABEL=x`, `make verify-links`.
-Organizer M data: `docker compose exec service python -m wtm.cli import-parquet --file /downloads/m-2026-10/versions-01.parquet --sha256sums /downloads/m-2026-10/SHA256SUMS --page-id 186` then `wtm build`.
+The committed API fixtures provide **five English articles**. The six-article Fly demo additionally
+imports Erik Edner from organizer M. To reproduce that locally:
+
+```bash
+mkdir -p downloads/m-2026-10
+curl -fL https://github.com/MariaDB/mariadb-wikipedia-datasets/releases/download/m-2026-10/versions-01.parquet -o downloads/m-2026-10/versions-01.parquet
+curl -fL https://github.com/MariaDB/mariadb-wikipedia-datasets/releases/download/m-2026-10/SHA256SUMS -o downloads/m-2026-10/SHA256SUMS
+docker compose exec -T service python -m wtm.cli import-parquet --file /downloads/m-2026-10/versions-01.parquet --sha256sums /downloads/m-2026-10/SHA256SUMS --page-id 186
+docker compose exec -T service python -m wtm.cli build
+docker compose exec -T service python -m wtm.cli claims --no-llm --import-cache /app/fixtures/claims/nemotron-extractions.jsonl.gz
+```
+
+The importer checks the Parquet checksum and page history. Organizer S is a separate current-text
+corpus used for ANN benchmarks (`make corpus`); it is not the source of historical article snapshots.
 
 ### Environment variables (`.env`, never committed)
 
@@ -113,6 +289,18 @@ Same demo through MediaWiki with `nemotron-3.5-super-vl` (3/3 runs validated, 41
   commercial operation on 16 April 2023.” [A1][A3][A5][B1][B2]
 
 Every `[id]` is checked against its side and links to that side's `oldid` with the stored excerpt.
+
+### Using the live demo
+
+Open the [public special page](https://wiki-time-machine-joeng03.fly.dev/index.php/Special:WikiTimeMachine)
+and select an example button. **Compare versions** resolves the revisions and shows the diff; **Ask**
+uses the question field to retrieve evidence and request a generated answer. For the prime minister
+and president examples, **Held office on** supplies the independent application-time date.
+
+The public demo is a prepared archive, not an unrestricted live Wikipedia search. The five English
+articles cover selected windows; Erik Edner has the imported organizer history. Choosing a date
+outside those windows gives an explicit coverage result. No visitor account is needed to read it;
+editing and public account creation are disabled.
 
 ### Bitemporal claims (verified on real data)
 
@@ -192,10 +380,235 @@ How claims are made and kept honest:
   re-attached from the database; malformed output, wrong-side citations, uncited statements, timeouts and
   outages all fall back to the evidence + diff view. All text is rendered with `textContent`.
 
+## Data model and API
+
+The full schema is in [wtm_schema.sql](extensions/WikiTimeMachine/sql/wtm_schema.sql).
+
+| Tables | Purpose |
+|---|---|
+| `wiki_page`, `wiki_revision`, `wiki_fetch_window` | Canonical page identity, archived source revisions and evidence of complete capture windows |
+| `wiki_build`, `wiki_active_build`, `wiki_coverage` | Build provenance, the active publication pointer and verified coverage |
+| `wiki_snapshot` | System-versioned mapping from source time to revision |
+| `wiki_revision_text`, `wiki_chunk`, `wiki_revision_chunk` | Derived text, shared passage vectors and exact revision membership |
+| `corpus_passage` | Separate organizer S passages for corpus-wide ANN search |
+| `wiki_claim`, `wiki_revision_claim`, `wiki_claim_extraction` | Structured tenure claims, revision-specific evidence and cached extraction results |
+| `wiki_claim_build`, `wiki_claim_snapshot` | Published claim builds and bitemporal claim intervals |
+
+MediaWiki exposes the visitor-facing actions below through `api.php`. PHP translates their parameters
+to internal FastAPI requests; the two API interfaces deliberately have different field names.
+
+| MediaWiki action | Internal FastAPI route | Purpose |
+|---|---|---|
+| `wtmarticles` | `GET /articles` | List prepared articles and coverage windows |
+| `wtmsnapshot` | `GET /snapshot` | Resolve one article at one time |
+| `wtmcompare` | `GET /compare` | Resolve two snapshots and return the diff |
+| `wtmask` | `POST /ask` | Retrieve revision-specific evidence and optionally generate an answer |
+| `wtmclaims` | `GET /claims` | Compare tenure claims at a valid date under two source views |
+| Internal only | `GET /timeline`, `GET /search`, `GET /health` | Inspect temporal intervals, search the separate corpus, check service/database state |
+
+For example, this public read request resolves the Olkiluoto snapshots without calling the LLM:
+
+```bash
+curl -fsSG 'https://wiki-time-machine-joeng03.fly.dev/api.php' \
+  --data-urlencode 'action=wtmcompare' \
+  --data-urlencode 'format=json' \
+  --data-urlencode 'formatversion=2' \
+  --data-urlencode 'page=1977274' \
+  --data-urlencode 'before=2021-12-15' \
+  --data-urlencode 'after=2023-04-20'
+```
+
+MediaWiki uses `wiki`, `page` and `validat`; the corresponding FastAPI fields are `wiki_id`, `page_id`
+and `valid_at`. Model-backed questions are limited to 500 characters by the current service.
+
+## Deployment on Fly.io
+
+The live demo runs **one Fly Machine** in Stockholm (`arn`) with **2 shared CPUs, 4 GB RAM,
+and a 10 GB persistent volume**. MediaWiki, FastAPI and MariaDB are three containers on that
+machine. They share its network and resources; only MediaWiki's HTTP port is published.
+
+```text
+Browser ──HTTPS──▶ Fly Proxy ──▶ one Machine (2 shared CPUs / 4 GB RAM)
+                                ├─ MediaWiki :80
+                                │    ├─ HTTP → 127.0.0.1:8000
+                                │    └─ SQL  → 127.0.0.1:3306
+                                ├─ FastAPI :8000 → MariaDB + optional external Nemotron
+                                └─ MariaDB :3306
+                                Persistent /data volume (10 GB)
+                                ├─ LocalSettings.php   wiki configuration and keys
+                                ├─ mysql/              all database files
+                                └─ hf/                 embedding model cache
+```
+
+### Why one machine is sufficient
+
+The database must run somewhere, but it does not need its own server. This deployment keeps the
+service boundaries of the local Compose setup while sharing one machine. MediaWiki serves PHP
+and the browser interface; FastAPI handles retrieval and model integration; MariaDB stores both
+schemas. The external language model still runs at its configured endpoint, so no local GPU is needed.
+
+Four GB gives the prepared demo room for MariaDB's configured caches, CPU embedding inference,
+PHP and the operating system. Ten GB provides headroom over the roughly 221 MB database at migration
+and the roughly 106 MB model cache. These are demo sizing choices, not a measured capacity guarantee
+for unrestricted imports or high concurrent traffic.
+
+Fly supports [multiple containers on one Machine](https://fly.io/docs/machines/guides-examples/multi-container-machines/).
+The cloud deployment uses an explicit container configuration; local development still uses
+`docker-compose.yml`. Both describe three services on one host. The original local bind mounts and
+Compose volume declarations are not automatically cloud persistent storage.
+
+### Configuration and images
+
+| File | Purpose |
+|---|---|
+| [fly.toml](fly.toml) | Public app, HTTPS, memory/CPU, persistent volume and health check |
+| [machine.json](docker/fly/machine.json) | Three container images, environment/secrets mappings, loopback connections, startup dependencies and shutdown behaviour |
+| [mediawiki.Dockerfile](docker/fly/mediawiki.Dockerfile) | Main image built by a normal `fly deploy` |
+| [api-image.toml](fly.api-image.toml), [service.Dockerfile](docker/fly/service.Dockerfile) | Build/push the API image without creating another Machine |
+| [db-image.toml](fly.db-image.toml), [db.Dockerfile](docker/fly/db.Dockerfile) | Build/push the MariaDB image without creating another Machine |
+
+`mediawiki` is first in the container list so a normal deployment replaces its image. Keep this
+order stable: Fly configuration updates can merge container fields by array position. The API
+and database images are pinned in `machine.json`. The database starts first; its TCP readiness
+check gates API startup, and MediaWiki starts after the API process starts. The public health check
+calls MediaWiki's site-info API; end-to-end tests verify the whole retrieval path.
+
+MariaDB binds to `127.0.0.1:3306` and stores files at `/data/mysql`. FastAPI binds to
+`127.0.0.1:8000`. MediaWiki uses those same local addresses. Neither internal port has a public
+Fly service. The MariaDB startup wrapper creates `/run/mysqld`, which is needed under Fly's container init.
+The three containers share the Machine's `/data` volume, with separate directories
+for database files, model cache and wiki settings.
+
+The MediaWiki image includes the official `mediawiki:1.43.11` core, dependencies and bundled skin,
+plus our extension. On a fresh installation the entrypoint installs its schema and writes generated
+configuration and keys to `/data/LocalSettings.php`. On subsequent starts it reuses that file and
+loads runtime environment overrides. The FastAPI image includes the service, schema and committed
+fixtures. MiniLM's first download is cached in `/data/hf` and the running API reuses its loaded model.
+
+### Secrets and first deployment
+
+All secrets belong to the single `wiki-time-machine-joeng03` Fly app. They include:
+
+- `MARIADB_ROOT_PASSWORD`, `MW_DB_PASSWORD`, `MW_ADMIN_PASSWORD`;
+- `WTM_READER_PASSWORD` and `WTM_IMPORTER_PASSWORD`;
+- optional `WTM_LLM_*` configuration and `WTM_USER_AGENT`.
+
+The cloud passwords were generated separately from local development, stored as Fly secrets,
+and saved in the ignored owner-only recovery file `data/fly-secrets.json`. Secrets are mapped explicitly to each container, but all containers share
+one Machine and persistent volume; the reader/importer separation applies to the
+connections opened by query and maintenance code, not to isolated security domains. Database
+password rotation requires changing MariaDB users as well as updating Fly secrets.
+
+For a fresh deployment, sign in with `fly auth login`, choose an available app name, update the
+config and image references, and create it with `fly apps create <app-name> --org <organization>`.
+Set its secrets using `fly secrets import --stage -a <app-name>` with private `NAME=VALUE` input.
+Build the API and database images into that app's registry, set their image references in
+`machine.json`, create one persistent volume, and deploy:
+
+```bash
+fly volumes create wikiconfig -a wiki-time-machine-joeng03 -r arn --size 10 -y
+fly deploy -c fly.toml --remote-only --ha=false
+```
+
+The checked-in app name belongs to the existing demo. Do not create another volume for routine
+updates. The volume is named `wikiconfig` for continuity with the initial deployment, but now stores
+all three services' persistent state. Local secrets and backups are excluded from Docker builds.
+
+To populate a fresh database, run the importer **inside the API container**:
+
+```bash
+fly ssh console -a wiki-time-machine-joeng03 --container api -C "python -m wtm.cli doctor --check-insert-history"
+fly ssh console -a wiki-time-machine-joeng03 --container api -C "python -m wtm.cli migrate"
+fly ssh console -a wiki-time-machine-joeng03 --container api -C "python -m wtm.cli load /app/fixtures/real/*.jsonl.gz"
+fly ssh console -a wiki-time-machine-joeng03 --container api -C "python -m wtm.cli build"
+fly ssh console -a wiki-time-machine-joeng03 --container api -C "python -m wtm.cli claims --no-llm --import-cache /app/fixtures/claims/nemotron-extractions.jsonl.gz"
+```
+
+The CLI expands the capture glob itself. The six-article deployment also contains Erik Edner from
+organizer M: download its Parquet and checksum files using the local setup instructions, upload
+them to the API container's `/data`, run `import-parquet --page-id 186` with checksum verification,
+then run `build` and `claims` again. The separate organizer S corpus used for local ANN benchmarks
+is not imported into this public demo. Data ingestion remains manual.
+
+### Updating the deployment
+
+PHP/UI changes need a normal deployment:
+
+```bash
+fly deploy -c fly.toml --remote-only --ha=false
+```
+
+For a Python change, build/push an API image with a new unique label:
+
+```bash
+fly deploy -c fly.api-image.toml --remote-only --build-only --push --image-label api-NEW_VERSION
+```
+
+Set the `api` image reference in `docker/fly/machine.json` to the resulting image (prefer its
+immutable digest), then deploy `fly.toml`. MariaDB image updates use `fly.db-image.toml`
+and the same build-only workflow, followed by updating the `db` image reference. **Do not deploy
+those image-build configs as standalone apps.** Back up the database before database upgrades.
+
+An image deployment does not automatically reload fixtures, run schema migrations or rebuild
+the archive. Those remain explicit maintenance operations. There is one database; do not use
+`fly scale count` to add independent database copies without a replication design.
+
+### Monitoring, tests and persistence checks
+
+```bash
+fly status -a wiki-time-machine-joeng03
+fly machine list -a wiki-time-machine-joeng03
+fly logs -a wiki-time-machine-joeng03
+fly ssh console -a wiki-time-machine-joeng03 --container api -C 'df -h /data'
+```
+
+To run the existing end-to-end tests against the public site and local cloud database:
+
+```bash
+fly ssh sftp put -a wiki-time-machine-joeng03 --container api extensions/WikiTimeMachine/service/tests_e2e/test_mediawiki_e2e.py /tmp/test_mediawiki_e2e.py
+fly ssh console -a wiki-time-machine-joeng03 --container api -C "env PYTHONPATH=/app WTM_MW_URL=https://wiki-time-machine-joeng03.fly.dev pytest -q /tmp/test_mediawiki_e2e.py"
+```
+
+The archive contains **286 snapshot intervals / 1,703 validation checks** and **21 claim rows /
+106 validation checks**. These build checks establish temporal consistency; public end-to-end
+checks separately cover revision links, source excerpts, input handling and bitemporal claims.
+A generated answer also needs its own generation-status/citation check, since the system can
+return useful evidence when the LLM is unavailable.
+
+After consolidation on 14 November 2026, all five end-to-end tests passed and a separate Nemotron
+request returned generation status `ok` with the expected historical revision IDs. A normal redeploy
+confirmed persistence of both schemas, the original wiki settings/keys and the embedding model cache.
+The old API and database apps have no remaining Machines.
+
+### Migration, backups and hosting limits
+
+The initial deployment on 14 November 2026 used three Machines. Consolidation preserves the public
+URL and wiki keys, backs up both schemas with `mariadb-dump --dump-history`, and restores them into
+the local MariaDB container. **Historical rows must be included**: an ordinary current-row dump
+would omit the backfilled temporal history. Private migration backups are stored under ignored
+`data/fly-migration/`; their contents must not be committed. The old database and API machines are
+retired after the consolidated service passed verification. Their old volumes (3 GB database and
+1 GB cache) are retained as rollback copies, with no running Machines; they add about US$0.02/day
+in storage charges until removed. The consolidated app uses its own 10 GB volume.
+
+The persistent volume has scheduled snapshots. Keep separate backups before storing data that
+cannot be rebuilt; snapshots alone are not an independent backup strategy. One machine has no
+replica or automatic failover, and a restart or deployment interrupts all services. Keep it running
+for predictable demo availability. Fly charges for compute and storage. Budget roughly **US$1 per 24 hours** for this Machine and
+10 GB volume before tax, bandwidth and external model charges; regional compute rates can vary.
+See [current Fly pricing](https://fly.io/pricing/) before treating this estimate as a spending limit. Per-visitor model quotas and broader abuse controls are not implemented.
+See [Fly volume persistence and failure behaviour](https://fly.io/docs/volumes/overview/).
+
+The shorter [deployment runbook](docker/fly/README.md) covers routine commands and migration status.
+
 ## Measured results
 
 See `extensions/WikiTimeMachine/docs/benchmarks.md` (row counts, EXPLAIN plans, latency; no LLM calls).
 Summary (SQL only, p50 / p95):
+
+These are local benchmark measurements, not Fly.io latency measurements or a large-scale load test.
+`p50` is the median, `p95` is the 95th percentile, and recall@10 measures overlap with the exact top-10
+neighbours for the benchmark queries. Recall is retrieval agreement, not answer accuracy.
 
 | | size 1 (217 revisions, 3.9 k corpus passages) | size 2 (245 revisions, 13.2 k corpus passages) |
 |---|---|---|
@@ -214,7 +627,8 @@ Warm `/ask` end to end without a model: resolve ≈7 ms, query embedding ≈4 ms
 | Python unit + MariaDB integration (synthetic fixtures, hash embedder, mocked LLM) | `make test-db` | **41 passed** |
 | PHPUnit (`TimeInput`) | `make test-php` | **11 tests, 14 assertions OK** |
 | End-to-end through MediaWiki `api.php` on real cached data (incl. live Nemotron ask, bitemporal claims) | `make test-e2e` | **5 passed** |
-| Offline reproduction from committed fixtures in a fresh database | `make demo` | identical: 286 intervals / 1,703 checks; 21 claim rows / 106 checks |
+| Offline reproduction from committed English fixtures in a fresh database | `make demo` | 258 intervals / 1,536 checks; 21 claim rows / 106 checks. Add organizer M for 286 / 1,703 |
+| Deployed Fly.io end-to-end suite | Commands in the deployment section | **5 passed** against public HTTPS and deployed DB |
 | Permanent links vs stored text (live Wikipedia) | `make verify-links` | **217/217 match** |
 | Browser: headless Chrome on the special page (desktop + 390 px; claims panel; live Nemotron answer) | manual script | renders, no JS errors, no horizontal scroll |
 
@@ -230,6 +644,10 @@ Retry-After; page cap; Parquet adapter (schema, provenance, parent-chain complet
 
 ## Incomplete / limitations (honest status)
 
+* **Evidence is not ground truth:** the app reconstructs source assertions, including mistakes and outdated claims.
+  Citation validation verifies provenance and response structure, not logical entailment of every generated sentence.
+* **Bounded archive:** only imported articles/windows are available. This is not a complete Wikipedia mirror or a live
+  synchronization service, and the deployed Fly demo does not contain the organizer S ANN corpus.
 * **Model latency:** the hackathon endpoint takes ≈20 s fixed overhead per call; `/ask` with generation takes 40–60 s
   (the UI shows evidence state and uses a 180 s timeout). Live-model e2e tests therefore need network and the key.
 * **Bitemporal claims are a narrow domain:** officeholder tenures of the article's own office (2 articles). Tables
@@ -245,12 +663,33 @@ Retry-After; page cap; Parquet adapter (schema, provenance, parent-chain complet
 * English main-namespace wikitext only (plus the fiwiki organizer page). Templates are not expanded — use the
   oldid link for the complete original.
 
+## Contributing to MediaWiki and Wikimedia
+
+WikiTimeMachine uses MediaWiki's extension mechanism and lives in a separate repository. That is the
+appropriate current boundary for its special page, API modules and external service; developing it does
+not require merging this whole repository into MediaWiki core.
+
+Upstream acceptance remains future work. The proposed path is developer feedback, an independently
+installable package, compatibility/coding/localisation checks, extension documentation, an appropriate
+repository-hosting request, and review through Gerrit. A GitHub fork of the core mirror is not that
+review path. See [the contribution plan](CONTRIBUTING.md) and
+[MediaWiki's Gerrit workflow](https://www.mediawiki.org/wiki/Gerrit/How_Gerrit_works).
+
+The Fly demo runs our own MediaWiki installation. It is not deployed on Wikipedia. Wikimedia hosting
+or a merged extension change would still be separate from approval to run on Wikimedia wikis, which
+requires the applicable community, security, performance and operations reviews. The external Python
+service and model dependency need an agreed operational plan. See
+[writing an extension for deployment](https://www.mediawiki.org/wiki/Writing_an_extension_for_deployment).
+
 ## Layout
 
 ```
 docker-compose.yml, Makefile, .env.example, scripts/setup-mediawiki.sh
 docker/mariadb/{init,conf}            DB users/schemas, UTC + secure_timestamp=NO
 docker/mediawiki/LocalSettings.wtm.php
+docker/fly/                          cloud Dockerfiles, first-boot entrypoint, runtime overrides, runbook
+fly.toml, docker/fly/machine.json      one Machine with three containers
+CONTRIBUTING.md                      proposed upstream contribution path and current status
 mediawiki/                            pinned upstream checkout (gitignored, recreated by setup)
 extensions/WikiTimeMachine/
   extension.json, WikiTimeMachine.alias.php, i18n/, includes/ (SpecialPage, API modules, ServiceClient),

@@ -1,0 +1,167 @@
+{
+  "containers": [
+    {
+      "name": "mediawiki",
+      "image": "registry.fly.io/wiki-time-machine-joeng03:deployment-01M7D5VR5BN3A8WFXQARJ4YCRB",
+      "depends_on": [
+        {
+          "name": "api",
+          "condition": "started"
+        }
+      ],
+      "stop": {
+        "signal": "SIGTERM",
+        "timeout": "30s"
+      },
+      "cmd": [
+        "apache2-foreground"
+      ],
+      "entrypoint": [
+        "wtm-entrypoint"
+      ],
+      "healthchecks": [],
+      "env": {
+        "MW_DB_HOST": "127.0.0.1",
+        "MW_SERVER": "https://wiki-time-machine-joeng03.fly.dev",
+        "WTM_SERVICE_URL": "http://127.0.0.1:8000"
+      },
+      "secrets": [
+        {
+          "env_var": "MW_ADMIN_PASSWORD",
+          "name": "MW_ADMIN_PASSWORD"
+        },
+        {
+          "env_var": "MW_DB_PASSWORD",
+          "name": "MW_DB_PASSWORD"
+        }
+      ]
+    },
+    {
+      "name": "db",
+      "image": "registry.fly.io/wiki-time-machine-joeng03@sha256:624e6f0506a75ac0c64cd43010865be3d99c60bc0651fd6ce91d6e3b2c7a90c3",
+      "cmd": [
+        "mariadbd",
+        "--bind-address=127.0.0.1",
+        "--datadir=/data/mysql"
+      ],
+      "healthchecks": [
+        {
+          "name": "database-ready",
+          "tcp": {
+            "port": 3306
+          },
+          "interval": 5,
+          "timeout": 3,
+          "grace_period": 30,
+          "success_threshold": 1,
+          "failure_threshold": 3
+        }
+      ],
+      "stop": {
+        "signal": "SIGTERM",
+        "timeout": "120s"
+      },
+      "depends_on": [],
+      "entrypoint": [
+        "sh",
+        "-c",
+        "mkdir -p /run/mysqld && chown mysql:mysql /run/mysqld && exec docker-entrypoint.sh \"$@\"",
+        "--"
+      ],
+      "env": {},
+      "secrets": [
+        {
+          "env_var": "MARIADB_ROOT_PASSWORD",
+          "name": "MARIADB_ROOT_PASSWORD"
+        },
+        {
+          "env_var": "MW_DB_PASSWORD",
+          "name": "MW_DB_PASSWORD"
+        },
+        {
+          "env_var": "WTM_IMPORTER_PASSWORD",
+          "name": "WTM_IMPORTER_PASSWORD"
+        },
+        {
+          "env_var": "WTM_READER_PASSWORD",
+          "name": "WTM_READER_PASSWORD"
+        }
+      ]
+    },
+    {
+      "name": "api",
+      "image": "registry.fly.io/wiki-time-machine-joeng03@sha256:cd99d220004d1b7328d250b4554fbb749a1065382055df20ab7a19d4c534d109",
+      "cmd": [
+        "uvicorn",
+        "wtm.api:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8000"
+      ],
+      "depends_on": [
+        {
+          "name": "db",
+          "condition": "healthy"
+        }
+      ],
+      "stop": {
+        "signal": "SIGTERM",
+        "timeout": "30s"
+      },
+      "env": {
+        "WTM_DB_HOST": "127.0.0.1",
+        "WTM_DB_NAME": "wtm",
+        "WTM_EMBEDDER": "minilm",
+        "HF_HOME": "/data/hf",
+        "PYTHONPATH": "/app"
+      },
+      "secrets": [
+        {
+          "env_var": "WTM_IMPORTER_PASSWORD",
+          "name": "WTM_IMPORTER_PASSWORD"
+        },
+        {
+          "env_var": "WTM_LLM_API_KEY",
+          "name": "WTM_LLM_API_KEY"
+        },
+        {
+          "env_var": "WTM_LLM_BASE_URL",
+          "name": "WTM_LLM_BASE_URL"
+        },
+        {
+          "env_var": "WTM_LLM_EXTRACT_EXTRA_BODY",
+          "name": "WTM_LLM_EXTRACT_EXTRA_BODY"
+        },
+        {
+          "env_var": "WTM_LLM_EXTRA_BODY",
+          "name": "WTM_LLM_EXTRA_BODY"
+        },
+        {
+          "env_var": "WTM_LLM_MAX_TOKENS",
+          "name": "WTM_LLM_MAX_TOKENS"
+        },
+        {
+          "env_var": "WTM_LLM_MODEL",
+          "name": "WTM_LLM_MODEL"
+        },
+        {
+          "env_var": "WTM_LLM_STRUCTURED",
+          "name": "WTM_LLM_STRUCTURED"
+        },
+        {
+          "env_var": "WTM_LLM_TIMEOUT",
+          "name": "WTM_LLM_TIMEOUT"
+        },
+        {
+          "env_var": "WTM_READER_PASSWORD",
+          "name": "WTM_READER_PASSWORD"
+        },
+        {
+          "env_var": "WTM_USER_AGENT",
+          "name": "WTM_USER_AGENT"
+        }
+      ]
+    }
+  ]
+}

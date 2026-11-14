@@ -1,0 +1,33 @@
+app = "wiki-time-machine-joeng03"
+primary_region = "arn"
+kill_signal = "SIGTERM"
+kill_timeout = 120
+
+[experimental]
+  machine_config = "docker/fly/machine.json"
+
+[build]
+  dockerfile = "docker/fly/mediawiki.Dockerfile"
+
+[[mounts]]
+  source = "wikiconfig"
+  destination = "/data"
+  initial_size = "10gb"
+
+[http_service]
+  internal_port = 80
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "10s"
+    grace_period = "60s"
+    method = "GET"
+    path = "/api.php?action=query&meta=siteinfo&format=json"
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "4gb"

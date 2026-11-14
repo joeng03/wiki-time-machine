@@ -1,0 +1,11 @@
+.git
+.env
+.env.*
+mediawiki
+downloads
+data
+cache
+**/__pycache__
+**/.pytest_cache
+**/.venv
+**/*.log

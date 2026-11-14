@@ -1,17 +1,18 @@
 app = "wiki-time-machine-joeng03"
 primary_region = "arn"
+kill_signal = "SIGTERM"
+kill_timeout = 120
+
+[experimental]
+  machine_config = "docker/fly/machine.json"
 
 [build]
   dockerfile = "docker/fly/mediawiki.Dockerfile"
 
-[env]
-  MW_DB_HOST = "wiki-time-machine-joeng03-db.internal"
-  MW_SERVER = "https://wiki-time-machine-joeng03.fly.dev"
-  WTM_SERVICE_URL = "http://wiki-time-machine-joeng03-api.internal:8000"
-
 [[mounts]]
   source = "wikiconfig"
   destination = "/data"
+  initial_size = "10gb"
 
 [http_service]
   internal_port = 80
@@ -28,5 +29,5 @@ primary_region = "arn"
     path = "/api.php?action=query&meta=siteinfo&format=json"
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "1gb"
+  size = "shared-cpu-2x"
+  memory = "4gb"

@@ -84,7 +84,7 @@ Browser ──same-origin──▶ MediaWiki 1.43.11 (Special:WikiTimeMachine, a
 Browser requests go to MediaWiki on the same origin. PHP calls FastAPI internally; the browser does
 not receive database credentials or the model API key. HTTP query code opens database connections
 with the SELECT-only reader account. Maintenance commands use the importer account. On the current
-demo API machine both credentials are configured for maintenance, so this is a connection-level role
+demo Machine both credentials are configured for maintenance, so this is a connection-level role
 separation, not a separate isolated importer deployment.
 
 ### A request from start to finish
@@ -423,168 +423,183 @@ and `valid_at`. Model-backed questions are limited to 500 characters by the curr
 
 ## Deployment on Fly.io
 
-The full stack was deployed on **14 November 2026** under the personal Fly.io organization. Fly runs
-each Docker image as its own Machine; it does not run this repository's Compose file directly.
-Compose remains the local development entry point. The cloud deployment uses three Fly apps in
-Stockholm (`arn`) and the same pinned MediaWiki, MariaDB and Python runtime versions.
-
-### Do these services need separate machines?
-
-**No.** MariaDB must run somewhere, but it does not require a dedicated machine. MediaWiki (the
-PHP application serving the interface), FastAPI and MariaDB can all run as separate containers on
-one server. Our local Docker Compose setup already does that. Containers are separate processes
-and filesystems; they are not necessarily separate servers.
-
-The three-machine arrangement below describes the **current deployment**, not an architectural
-requirement. It gives each service its own resources and update lifecycle. For this small demo,
-one adequately sized machine is a reasonable simpler target; all services would share its CPU,
-memory and failure/restart boundary. Persistent database storage is still required in either layout.
-
-Fly also supports [multiple containers on one Machine, including a Compose deployment path](https://fly.io/docs/machines/guides-examples/multi-container-machines/).
-Moving this demo there requires a production Compose/config adaptation: prebuilt images where
-needed, local service connections, and explicit Fly volume mounts. Fly's documented Compose path
-does not preserve Compose `volumes:` declarations automatically. Our local checkout/config bind
-mounts cannot be treated as cloud persistent storage. The live three-machine deployment has not
-been migrated by this documentation change.
+The live demo runs **one Fly Machine** in Stockholm (`arn`) with **2 shared CPUs, 4 GB RAM,
+and a 10 GB persistent volume**. MediaWiki, FastAPI and MariaDB are three containers on that
+machine. They share its network and resources; only MediaWiki's HTTP port is published.
 
 ```text
-Public browser
-    │ HTTPS
-    ▼
-wiki-time-machine-joeng03              MediaWiki :80
-    │ private IPv6 HTTP
-    ▼
-wiki-time-machine-joeng03-api          FastAPI :8000 ──HTTPS──▶ optional Nemotron endpoint
-    │ private IPv6 SQL
-    ▼
-wiki-time-machine-joeng03-db           MariaDB :3306
-
-MediaWiki also connects directly to MariaDB for its own schema.
+Browser ──HTTPS──▶ Fly Proxy ──▶ one Machine (2 shared CPUs / 4 GB RAM)
+                                ├─ MediaWiki :80
+                                │    ├─ HTTP → 127.0.0.1:8000
+                                │    └─ SQL  → 127.0.0.1:3306
+                                ├─ FastAPI :8000 → MariaDB + optional external Nemotron
+                                └─ MariaDB :3306
+                                Persistent /data volume (10 GB)
+                                ├─ LocalSettings.php   wiki configuration and keys
+                                ├─ mysql/              all database files
+                                └─ hf/                 embedding model cache
 ```
 
-| Config / image build | Machine size | Persistent volume | Public access |
-|---|---|---|---|
-| [fly.toml](fly.toml) / [mediawiki.Dockerfile](docker/fly/mediawiki.Dockerfile) | 1 shared CPU, 1 GB RAM | `wikiconfig`, 1 GB, mounted at `/data` | HTTPS at `wiki-time-machine-joeng03.fly.dev` |
-| [fly.service.toml](fly.service.toml) / [service.Dockerfile](docker/fly/service.Dockerfile) | 2 shared CPUs, 2 GB RAM | `hfcache`, 1 GB, mounted at `/cache` | Private network only |
-| [fly.db.toml](fly.db.toml) / [db.Dockerfile](docker/fly/db.Dockerfile) | 1 shared CPU, 2 GB RAM | `dbdata`, 3 GB, mounted at `/var/lib/mysql` | Private network only |
+### Why one machine is sufficient
 
-The API and database have no public IP allocations. Their `.internal` hostnames resolve through Fly's
-private network; both images listen on IPv6 for those connections. The public site forces HTTPS, and
-its health check calls MediaWiki's site-info API. This checks the wiki's availability; the separate
-FastAPI `/health` response and end-to-end tests check the retrieval stack.
+The database must run somewhere, but it does not need its own server. This deployment keeps the
+service boundaries of the local Compose setup while sharing one machine. MediaWiki serves PHP
+and the browser interface; FastAPI handles retrieval and model integration; MariaDB stores both
+schemas. The external language model still runs at its configured endpoint, so no local GPU is needed.
 
-### Images, secrets and persistent state
+Four GB gives the prepared demo room for MariaDB's configured caches, CPU embedding inference,
+PHP and the operating system. Ten GB provides headroom over the roughly 221 MB database at migration
+and the roughly 106 MB model cache. These are demo sizing choices, not a measured capacity guarantee
+for unrestricted imports or high concurrent traffic.
 
-The MediaWiki image copies the extension into the official `mediawiki:1.43.11` image. It uses the
-core, dependencies and bundled skin supplied there, rather than copying the ignored local core
-checkout. At first boot, the entrypoint installs MediaWiki and stores generated settings and keys
-on `/data/LocalSettings.php`. The runtime override reads the public URL, database password and
-internal API URL from environment variables and disables detailed public exception output.
+Fly supports [multiple containers on one Machine](https://fly.io/docs/machines/guides-examples/multi-container-machines/).
+The cloud deployment uses an explicit container configuration; local development still uses
+`docker-compose.yml`. Both describe three services on one host. The original local bind mounts and
+Compose volume declarations are not automatically cloud persistent storage.
 
-The FastAPI image contains the service, SQL and committed fixtures. MiniLM is downloaded when first
-needed and retained on `/cache`; subsequent requests reuse the loaded model in the running process.
-The MariaDB image includes the database/user initialization script and the UTC, historical-insertion
-and vector-cache configuration. Database files survive machine replacement on the `dbdata` volume.
+### Configuration and images
 
-| Fly app | Required secrets | Additional configuration |
-|---|---|---|
-| Database | `MARIADB_ROOT_PASSWORD`, `MW_DB_PASSWORD`, `WTM_IMPORTER_PASSWORD`, `WTM_READER_PASSWORD` | Initialization creates separate MediaWiki and application schemas/users |
-| API | `WTM_READER_PASSWORD`, `WTM_IMPORTER_PASSWORD` | Optional `WTM_LLM_*` and `WTM_USER_AGENT`; database host/model choice are in its Fly config |
-| MediaWiki | `MW_DB_PASSWORD`, `MW_ADMIN_PASSWORD` | Public server URL, database host and internal service URL are in its Fly config |
+| File | Purpose |
+|---|---|
+| [fly.toml](fly.toml) | Public app, HTTPS, memory/CPU, persistent volume and health check |
+| [machine.json](docker/fly/machine.json) | Three container images, environment/secrets mappings, loopback connections, startup dependencies and shutdown behaviour |
+| [mediawiki.Dockerfile](docker/fly/mediawiki.Dockerfile) | Main image built by a normal `fly deploy` |
+| [api-image.toml](fly.api-image.toml), [service.Dockerfile](docker/fly/service.Dockerfile) | Build/push the API image without creating another Machine |
+| [db-image.toml](fly.db-image.toml), [db.Dockerfile](docker/fly/db.Dockerfile) | Build/push the MariaDB image without creating another Machine |
 
-Passwords were generated for the cloud deployment, stored as Fly secrets and kept in the ignored
-local recovery file `data/fly-secrets.json` (restricted to its owner). The existing optional LLM
-configuration was copied from the local Compose environment into Fly secrets. No credentials belong
-in Git or Docker build arguments; `.dockerignore` excludes local secrets and state from image builds.
-Rotating database credentials also requires changing the actual MariaDB user passwords: Fly secret
-updates alone do not rerun initialization on an existing database volume.
+`mediawiki` is first in the container list so a normal deployment replaces its image. Keep this
+order stable: Fly configuration updates can merge container fields by array position. The API
+and database images are pinned in `machine.json`. The database starts first; its TCP readiness
+check gates API startup, and MediaWiki starts after the API process starts. The public health check
+calls MediaWiki's site-info API; end-to-end tests verify the whole retrieval path.
 
-### Provisioning and initialization
+MariaDB binds to `127.0.0.1:3306` and stores files at `/data/mysql`. FastAPI binds to
+`127.0.0.1:8000`. MediaWiki uses those same local addresses. Neither internal port has a public
+Fly service. The MariaDB startup wrapper creates `/run/mysqld`, which is needed under Fly's container init.
+The three containers share the Machine's `/data` volume, with separate directories
+for database files, model cache and wiki settings.
 
-For a new account/deployment, install the official Fly CLI and sign in with `fly auth login`. Choose
-three available app names, update all three configs and their cross-references, and create each app
-with `fly apps create <app-name> --org <organization>`. The checked-in names belong to this deployment.
-Do not recreate its existing apps or volumes for a routine update.
+The MediaWiki image includes the official `mediawiki:1.43.11` core, dependencies and bundled skin,
+plus our extension. On a fresh installation the entrypoint installs its schema and writes generated
+configuration and keys to `/data/LocalSettings.php`. On subsequent starts it reuses that file and
+loads runtime environment overrides. The FastAPI image includes the service, schema and committed
+fixtures. MiniLM's first download is cached in `/data/hf` and the running API reuses its loaded model.
 
-The original volume provisioning commands were:
+### Secrets and first deployment
+
+All secrets belong to the single `wiki-time-machine-joeng03` Fly app. They include:
+
+- `MARIADB_ROOT_PASSWORD`, `MW_DB_PASSWORD`, `MW_ADMIN_PASSWORD`;
+- `WTM_READER_PASSWORD` and `WTM_IMPORTER_PASSWORD`;
+- optional `WTM_LLM_*` configuration and `WTM_USER_AGENT`.
+
+The cloud passwords were generated separately from local development, stored as Fly secrets,
+and saved in the ignored owner-only recovery file `data/fly-secrets.json`. Secrets are mapped explicitly to each container, but all containers share
+one Machine and persistent volume; the reader/importer separation applies to the
+connections opened by query and maintenance code, not to isolated security domains. Database
+password rotation requires changing MariaDB users as well as updating Fly secrets.
+
+For a fresh deployment, sign in with `fly auth login`, choose an available app name, update the
+config and image references, and create it with `fly apps create <app-name> --org <organization>`.
+Set its secrets using `fly secrets import --stage -a <app-name>` with private `NAME=VALUE` input.
+Build the API and database images into that app's registry, set their image references in
+`machine.json`, create one persistent volume, and deploy:
 
 ```bash
-fly volumes create dbdata -a wiki-time-machine-joeng03-db -r arn --size 3 -y
-fly volumes create hfcache -a wiki-time-machine-joeng03-api -r arn --size 1 -y
-fly volumes create wikiconfig -a wiki-time-machine-joeng03 -r arn --size 1 -y
-```
-
-Set the secrets listed above for each app before its first deployment, using `fly secrets import
---stage -a <app-name>` with `NAME=VALUE` input from a private file or secret manager. Deploy the database
-first, then the API. Once the database is ready, initialize the archive:
-
-```bash
-fly deploy -c fly.db.toml --remote-only --ha=false
-fly deploy -c fly.service.toml --remote-only --ha=false
-fly ssh console -a wiki-time-machine-joeng03-api -C "python -m wtm.cli doctor --check-insert-history"
-fly ssh console -a wiki-time-machine-joeng03-api -C "python -m wtm.cli migrate"
-fly ssh console -a wiki-time-machine-joeng03-api -C "python -m wtm.cli load /app/fixtures/real/*.jsonl.gz"
-fly ssh console -a wiki-time-machine-joeng03-api -C "python -m wtm.cli build"
-fly ssh console -a wiki-time-machine-joeng03-api -C "python -m wtm.cli claims --no-llm --import-cache /app/fixtures/claims/nemotron-extractions.jsonl.gz"
+fly volumes create wikiconfig -a wiki-time-machine-joeng03 -r arn --size 10 -y
 fly deploy -c fly.toml --remote-only --ha=false
 ```
 
-The CLI expands the capture glob itself. For the sixth article, download organizer M using the local
-instructions above, then transfer and import the file:
+The checked-in app name belongs to the existing demo. Do not create another volume for routine
+updates. The volume is named `wikiconfig` for continuity with the initial deployment, but now stores
+all three services' persistent state. Local secrets and backups are excluded from Docker builds.
+
+To populate a fresh database, run the importer **inside the API container**:
 
 ```bash
-fly ssh sftp put -a wiki-time-machine-joeng03-api downloads/m-2026-10/versions-01.parquet /cache/versions-01.parquet
-fly ssh sftp put -a wiki-time-machine-joeng03-api downloads/m-2026-10/SHA256SUMS /cache/SHA256SUMS
-fly ssh console -a wiki-time-machine-joeng03-api -C "python -m wtm.cli import-parquet --file /cache/versions-01.parquet --sha256sums /cache/SHA256SUMS --page-id 186"
-fly ssh console -a wiki-time-machine-joeng03-api -C "python -m wtm.cli build"
-fly ssh console -a wiki-time-machine-joeng03-api -C "python -m wtm.cli claims --no-llm --import-cache /app/fixtures/claims/nemotron-extractions.jsonl.gz"
+fly ssh console -a wiki-time-machine-joeng03 --container api -C "python -m wtm.cli doctor --check-insert-history"
+fly ssh console -a wiki-time-machine-joeng03 --container api -C "python -m wtm.cli migrate"
+fly ssh console -a wiki-time-machine-joeng03 --container api -C "python -m wtm.cli load /app/fixtures/real/*.jsonl.gz"
+fly ssh console -a wiki-time-machine-joeng03 --container api -C "python -m wtm.cli build"
+fly ssh console -a wiki-time-machine-joeng03 --container api -C "python -m wtm.cli claims --no-llm --import-cache /app/fixtures/claims/nemotron-extractions.jsonl.gz"
 ```
 
-The public deployment contains these six article histories and cached claims. The separate organizer
-S corpus used in the ANN benchmarks was **not** imported into Fly; `/search` there is not a populated
-corpus-search demo. Ingestion is manual, so the archive does not automatically track new Wikipedia edits.
+The CLI expands the capture glob itself. The six-article deployment also contains Erik Edner from
+organizer M: download its Parquet and checksum files using the local setup instructions, upload
+them to the API container's `/data`, run `import-parquet --page-id 186` with checksum verification,
+then run `build` and `claims` again. The separate organizer S corpus used for local ANN benchmarks
+is not imported into this public demo. Data ingestion remains manual.
 
-### Updates, monitoring and verification
+### Updating the deployment
 
-For code updates, run `fly deploy` with the affected config from the repository root. PHP/UI changes
-need `fly.toml`; Python changes need `fly.service.toml`. Database-image changes use `fly.db.toml` and
-deserve separate backup planning. Rebuilding an image does not automatically reload fixtures or rebuild
-the archive. Schema changes require an explicit migration; new data needs validation and publication.
+PHP/UI changes need a normal deployment:
 
 ```bash
-fly status -c fly.toml
-fly status -c fly.service.toml
-fly status -c fly.db.toml
-fly logs -c fly.toml
-fly logs -c fly.service.toml
-fly logs -c fly.db.toml
+fly deploy -c fly.toml --remote-only --ha=false
 ```
 
-To repeat the deployed end-to-end tests without including test files in the runtime image:
+For a Python change, build/push an API image with a new unique label:
 
 ```bash
-fly ssh sftp put -a wiki-time-machine-joeng03-api extensions/WikiTimeMachine/service/tests_e2e/test_mediawiki_e2e.py /tmp/test_mediawiki_e2e.py
-fly ssh console -a wiki-time-machine-joeng03-api -C "env PYTHONPATH=/app WTM_MW_URL=https://wiki-time-machine-joeng03.fly.dev pytest -q /tmp/test_mediawiki_e2e.py"
+fly deploy -c fly.api-image.toml --remote-only --build-only --push --image-label api-NEW_VERSION
 ```
 
-At deployment, all **5 tests passed** against the public HTTPS site and cloud database. A separate
-public `wtmask` request returned generation status `ok` with Nemotron statements and revision-specific
-citations. The browser comparison displayed both exact revision links and the expected paragraph diff.
-The published cloud build has **286 snapshot intervals / 1,703 checks** and **21 claim rows / 106 checks**.
+Set the `api` image reference in `docker/fly/machine.json` to the resulting image (prefer its
+immutable digest), then deploy `fly.toml`. MariaDB image updates use `fly.db-image.toml`
+and the same build-only workflow, followed by updating the `db` image reference. **Do not deploy
+those image-build configs as standalone apps.** Back up the database before database upgrades.
 
-### Hosting limits and costs
+An image deployment does not automatically reload fixtures, run schema migrations or rebuild
+the archive. Those remain explicit maintenance operations. There is one database; do not use
+`fly scale count` to add independent database copies without a replication design.
 
-This is one machine per app with persistent volumes and scheduled snapshots. It has no database
-replica or automatic failover; maintenance and host failures can interrupt the demo. Keep the database
-and API running, since direct `.internal` connections do not wake stopped machines. Do not scale the
-database to multiple machines without a replication design.
+### Monitoring, tests and persistence checks
 
-Fly charges for machines and storage, and model requests use the configured external endpoint.
-The demo does not yet have application-level per-visitor model quotas. Before wider public use, add
-appropriate abuse controls, independent database backups, monitoring and an availability plan.
-Snapshots alone are not an independent backup strategy. See the
-[Fly volume documentation](https://fly.io/docs/volumes/overview/) for persistence and failure behaviour.
-The smaller [deployment runbook](docker/fly/README.md) is available for routine operations.
+```bash
+fly status -a wiki-time-machine-joeng03
+fly machine list -a wiki-time-machine-joeng03
+fly logs -a wiki-time-machine-joeng03
+fly ssh console -a wiki-time-machine-joeng03 --container api -C 'df -h /data'
+```
+
+To run the existing end-to-end tests against the public site and local cloud database:
+
+```bash
+fly ssh sftp put -a wiki-time-machine-joeng03 --container api extensions/WikiTimeMachine/service/tests_e2e/test_mediawiki_e2e.py /tmp/test_mediawiki_e2e.py
+fly ssh console -a wiki-time-machine-joeng03 --container api -C "env PYTHONPATH=/app WTM_MW_URL=https://wiki-time-machine-joeng03.fly.dev pytest -q /tmp/test_mediawiki_e2e.py"
+```
+
+The archive contains **286 snapshot intervals / 1,703 validation checks** and **21 claim rows /
+106 validation checks**. These build checks establish temporal consistency; public end-to-end
+checks separately cover revision links, source excerpts, input handling and bitemporal claims.
+A generated answer also needs its own generation-status/citation check, since the system can
+return useful evidence when the LLM is unavailable.
+
+After consolidation on 14 November 2026, all five end-to-end tests passed and a separate Nemotron
+request returned generation status `ok` with the expected historical revision IDs. A normal redeploy
+confirmed persistence of both schemas, the original wiki settings/keys and the embedding model cache.
+The old API and database apps have no remaining Machines.
+
+### Migration, backups and hosting limits
+
+The initial deployment on 14 November 2026 used three Machines. Consolidation preserves the public
+URL and wiki keys, backs up both schemas with `mariadb-dump --dump-history`, and restores them into
+the local MariaDB container. **Historical rows must be included**: an ordinary current-row dump
+would omit the backfilled temporal history. Private migration backups are stored under ignored
+`data/fly-migration/`; their contents must not be committed. The old database and API machines are
+retired after the consolidated service passed verification. Their old volumes (3 GB database and
+1 GB cache) are retained as rollback copies, with no running Machines; they add about US$0.02/day
+in storage charges until removed. The consolidated app uses its own 10 GB volume.
+
+The persistent volume has scheduled snapshots. Keep separate backups before storing data that
+cannot be rebuilt; snapshots alone are not an independent backup strategy. One machine has no
+replica or automatic failover, and a restart or deployment interrupts all services. Keep it running
+for predictable demo availability. Fly charges for compute and storage. Budget roughly **US$1 per 24 hours** for this Machine and
+10 GB volume before tax, bandwidth and external model charges; regional compute rates can vary.
+See [current Fly pricing](https://fly.io/pricing/) before treating this estimate as a spending limit. Per-visitor model quotas and broader abuse controls are not implemented.
+See [Fly volume persistence and failure behaviour](https://fly.io/docs/volumes/overview/).
+
+The shorter [deployment runbook](docker/fly/README.md) covers routine commands and migration status.
 
 ## Measured results
 
@@ -673,7 +688,7 @@ docker-compose.yml, Makefile, .env.example, scripts/setup-mediawiki.sh
 docker/mariadb/{init,conf}            DB users/schemas, UTC + secure_timestamp=NO
 docker/mediawiki/LocalSettings.wtm.php
 docker/fly/                          cloud Dockerfiles, first-boot entrypoint, runtime overrides, runbook
-fly.toml, fly.service.toml, fly.db.toml
+fly.toml, docker/fly/machine.json      one Machine with three containers
 CONTRIBUTING.md                      proposed upstream contribution path and current status
 mediawiki/                            pinned upstream checkout (gitignored, recreated by setup)
 extensions/WikiTimeMachine/

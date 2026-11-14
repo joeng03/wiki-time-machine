@@ -1,0 +1,6 @@
+# Build/push only; fly.toml deploys all three containers on one Machine.
+app = "wiki-time-machine-joeng03"
+primary_region = "arn"
+
+[build]
+  dockerfile = "docker/fly/db.Dockerfile"

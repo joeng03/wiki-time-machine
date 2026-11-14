@@ -1,88 +1,94 @@
 # Fly.io demo deployment
 
-The three Fly apps reuse the pinned Docker runtimes. Only MediaWiki has a public
-HTTP service. FastAPI and MariaDB communicate over Fly's private IPv6 network.
-Each app runs one machine in Stockholm (`arn`); this is a demo deployment with
-downtime during updates, not a replicated production service.
+The public demo uses **one Machine** in Stockholm (`arn`): **2 shared CPUs, 4 GB RAM,
+10 GB persistent storage**. Three containers run MediaWiki, FastAPI and MariaDB.
+Only MediaWiki's port 80 is exposed through Fly Proxy with HTTPS.
 
-| Config | App | Persistent volume |
-| --- | --- | --- |
-| `fly.toml` | `wiki-time-machine-joeng03` | `wikiconfig`: generated wiki settings and keys |
-| `fly.service.toml` | `wiki-time-machine-joeng03-api` | `hfcache`: MiniLM download cache |
-| `fly.db.toml` | `wiki-time-machine-joeng03-db` | `dbdata`: MariaDB data |
+See the root [README](../../README.md#deployment-on-flyio) for the concepts, schema,
+full provisioning instructions, migration details and limitations.
 
-Secrets are stored with Fly secrets, never in the images. The initial deployment's
-generated credentials have a local recovery copy in ignored `data/fly-secrets.json`.
-Do not commit or share that file. The service also uses the existing optional LLM
-configuration from the local Compose environment.
+## Files and storage
 
-## Update an existing deployment
+- `fly.toml`: public app, resources, environment, `/data` mount and health check.
+- `docker/fly/machine.json`: container images, local networking and startup order.
+  Keep `mediawiki` first: the Fly deploy workflow replaces the primary image.
+- `fly.api-image.toml` and `fly.db-image.toml`: build/push images only; do not deploy
+  these as separate applications.
+- One volume, historically named `wikiconfig`, stores `/data/LocalSettings.php`,
+  `/data/mysql` and `/data/hf`. Do not delete it during deployment.
+- Secrets belong to `wiki-time-machine-joeng03`. Private recovery credentials and
+  migration backups live in the ignored local `data/` directory, never in Git.
 
-From the repository root, deploy only the apps affected by your change:
+## Update and inspect
+
+From the repository root:
 
 ```sh
-fly deploy -c fly.db.toml --remote-only --ha=false
-fly deploy -c fly.service.toml --remote-only --ha=false
 fly deploy -c fly.toml --remote-only --ha=false
+fly status -a wiki-time-machine-joeng03
+fly machine list -a wiki-time-machine-joeng03
+fly logs -a wiki-time-machine-joeng03
+fly ssh console -a wiki-time-machine-joeng03 --container api -C 'df -h /data'
 ```
 
-Keep the database and API running; private DNS does not start stopped machines.
-Do not scale the database to multiple machines without configuring replication.
-
-## Initialize the fixture demo
-
-Once the database and API are running:
+For a Python change, build/push a uniquely labelled image:
 
 ```sh
-fly ssh console -a wiki-time-machine-joeng03-api -C "python -m wtm.cli doctor --check-insert-history"
-fly ssh console -a wiki-time-machine-joeng03-api -C "python -m wtm.cli migrate"
-fly ssh console -a wiki-time-machine-joeng03-api -C "python -m wtm.cli load /app/fixtures/real/*.jsonl.gz"
-fly ssh console -a wiki-time-machine-joeng03-api -C "python -m wtm.cli build"
-fly ssh console -a wiki-time-machine-joeng03-api -C "python -m wtm.cli claims --no-llm --import-cache /app/fixtures/claims/nemotron-extractions.jsonl.gz"
+fly deploy -c fly.api-image.toml --remote-only --build-only --push --image-label api-NEW_VERSION
 ```
 
-The loader accepts the glob itself. Import/build operations are idempotent for
-unchanged inputs. Corpus-wide ANN search needs its separate organizer data import;
-the fixture initialization provides article comparisons and bitemporal claims.
+Update the `api` image in `machine.json` to that image's immutable digest and deploy
+`fly.toml`. Database images use `fly.db-image.toml` with the same workflow. Back up
+before a database upgrade. Deployments do not automatically migrate or rebuild data.
 
-The deployed demo also includes Erik Edner from the organizer M dataset. To
-reproduce it, download and verify `versions-01.parquet` and `SHA256SUMS` as
-described in the root README, then:
+All containers share loopback networking. MediaWiki uses `127.0.0.1:8000` for the
+API and `127.0.0.1:3306` for its database. The API uses that same local database.
+MariaDB and the API listen only on loopback. Startup dependencies wait for MariaDB's
+TCP readiness before starting the API, then start MediaWiki after the API process.
+
+## Import data and test
+
+On a fresh database, use the initialization commands in the root README. Target
+`--container api` for `python -m wtm.cli` commands. The committed fixtures provide
+five English articles; organizer M adds the sixth, Erik Edner. The organizer S
+corpus used in local ANN benchmarks is not populated in the public demo.
+
+Run the public end-to-end suite:
 
 ```sh
-fly ssh sftp put -a wiki-time-machine-joeng03-api downloads/m-2026-10/versions-01.parquet /cache/versions-01.parquet
-fly ssh sftp put -a wiki-time-machine-joeng03-api downloads/m-2026-10/SHA256SUMS /cache/SHA256SUMS
-fly ssh console -a wiki-time-machine-joeng03-api -C "python -m wtm.cli import-parquet --file /cache/versions-01.parquet --sha256sums /cache/SHA256SUMS --page-id 186"
+fly ssh sftp put -a wiki-time-machine-joeng03 --container api extensions/WikiTimeMachine/service/tests_e2e/test_mediawiki_e2e.py /tmp/test_mediawiki_e2e.py
+fly ssh console -a wiki-time-machine-joeng03 --container api -C "env PYTHONPATH=/app WTM_MW_URL=https://wiki-time-machine-joeng03.fly.dev pytest -q /tmp/test_mediawiki_e2e.py"
 ```
 
-Run `build` and `claims` again after that import to publish the expanded demo.
+Also check generation status `ok` on a model-backed question: the suite accepts
+useful evidence fallback when the external model is unavailable.
 
-The first MediaWiki boot installs its schema and creates the administrator account.
-Generated settings remain on its volume. Runtime environment values override the
-database password and public URL, so they can be changed without rebuilding keys.
+## Migration and recovery
 
-## Operations
+The original deployment used three Machines. Consolidation retains the public
+app and wiki settings, extends its volume to 10 GB, and restores both schemas into
+the local MariaDB container. The backup uses `mariadb-dump --dump-history` to preserve
+system-versioned rows. Never substitute a current-row-only dump.
 
-```sh
-fly status -c fly.toml
-fly logs -c fly.toml
-fly logs -c fly.service.toml
-fly logs -c fly.db.toml
-```
+Private local backups are under `data/fly-migration/`, with credentials under
+`data/fly-secrets.json`. Old API/database machines are retired after verification.
+Retained old volumes provide a rollback copy and continue to incur storage charges.
+Scheduled snapshots are enabled, but keep independent backups for irreplaceable data.
 
-Fly charges for the machines and volumes. Volumes have scheduled snapshots, but
-the single database has no replica. Keep separate database backups before storing
-data that cannot be rebuilt from the committed fixtures.
+The deployment is a demo: one failure/restart boundary, no replica or automatic
+failover, and no application-level per-visitor model quotas. Do not add independent
+machines with `fly scale count` without first designing database replication.
 
-## Verified deployment (14 November 2026)
+## Verified after consolidation (14 November 2026)
 
-- Public special page renders; browser comparison displays both exact revision
-  links and the paragraph diff.
-- Six articles, 286 snapshot intervals; 1,703 snapshot checks passed.
-- 21 bitemporal claim rows; 106 claim checks passed.
-- All five existing end-to-end tests passed against the public HTTPS site and
-  deployed database. The test file was uploaded temporarily to `/tmp` on the API
-  machine and run with `PYTHONPATH=/app` and `WTM_MW_URL` set to the public URL.
-- A separate public `wtmask` request returned generation status `ok` with
-  Nemotron statements and revision-specific citations.
-- API and database apps have no public IP allocations.
+- Exactly one Machine remains across the original three apps; the old API and
+  database Machines were removed. Their 4 GB of old volumes remain as rollback
+  storage (about US$0.02/day at the published volume rate).
+- The Machine has 2 shared CPUs, 4 GB RAM and the original volume extended to 10 GB.
+- Both schemas were restored with history: six pages, 286 published snapshot
+  intervals and 21 published claim rows. Wiki settings match the original backup.
+- A normal redeployment/restart preserves the database, wiki keys and model cache.
+- All five existing end-to-end tests pass against the public site after migration.
+- A separate model-backed request returns generation status `ok` with the expected
+  historical revision IDs. Database capability checks confirm historical inserts
+  and native vector support.

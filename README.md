@@ -1,3 +1,5 @@
+![Wiki Time Machine logo](extensions/WikiTimeMachine/resources/logo.svg)
+
 # Wikipedia Time Machine — MediaWiki extension (Junction × MariaDB, BOTH track)
 
 **Upstream status:** independent MediaWiki extension prototype; not yet submitted

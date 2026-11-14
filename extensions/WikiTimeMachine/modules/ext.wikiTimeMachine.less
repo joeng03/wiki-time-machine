@@ -1,0 +1,77 @@
+@wtm-border: #c8ccd1;
+@wtm-muted: #54595d;
+@wtm-del-bg: #ffe9e5;
+@wtm-del-fg: #8c1a10;
+@wtm-ins-bg: #dbf3ec;
+@wtm-ins-fg: #0b5c3f;
+
+.wtm-intro { max-width: 60em; }
+
+.wtm-form {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px 16px;
+	align-items: flex-end;
+	padding: 12px 16px;
+	border: 1px solid @wtm-border;
+	border-radius: 4px;
+	margin-bottom: 12px;
+
+	.wtm-field { display: flex; flex-direction: column; gap: 4px; min-width: 14em; }
+	label { font-weight: bold; }
+	select, input { min-height: 32px; padding: 4px 8px; font-size: 1em; }
+	.wtm-hint, .wtm-validation { flex-basis: 100%; margin: 0; }
+}
+
+.wtm-hint { color: @wtm-muted; font-size: 0.9em; }
+.wtm-validation { color: #b32424; font-weight: bold; }
+.wtm-validation:empty, .wtm-hint:empty { display: none; }
+.wtm-examples { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.wtm-status { margin: 8px 0; font-style: italic; }
+
+.wtm-sides {
+	display: grid;
+	grid-template-columns: repeat( auto-fit, minmax( 18em, 1fr ) );
+	gap: 16px;
+	margin: 12px 0;
+}
+
+.wtm-side {
+	border: 1px solid @wtm-border;
+	border-radius: 4px;
+	padding: 8px 16px;
+	min-width: 0;
+	h3 { margin-top: 0.3em; }
+	&.wtm-side-not_covered, &.wtm-side-unavailable, &.wtm-side-no_revision { background: #f8f9fa; }
+}
+
+.wtm-empty { color: @wtm-muted; font-style: italic; }
+.wtm-note { padding: 8px 12px; background: #eaf3ff; border-left: 4px solid #36c; }
+
+.wtm-ask {
+	margin: 16px 0;
+	label { font-weight: bold; display: block; margin-bottom: 4px; }
+	.wtm-ask-row { display: flex; gap: 8px; flex-wrap: wrap; }
+	#wtm-question { flex: 1 1 20em; min-height: 32px; padding: 4px 8px; font-size: 1em; }
+}
+
+.wtm-evidence {
+	padding-left: 1.2em;
+	li { margin-bottom: 10px; }
+	blockquote { margin: 4px 0 0; padding: 4px 10px; border-left: 3px solid @wtm-border; white-space: pre-line; }
+	.wtm-dist { color: @wtm-muted; font-size: 0.85em; }
+}
+
+.wtm-statements li { margin-bottom: 6px; }
+.wtm-cites a { font-size: 0.85em; vertical-align: super; }
+.wtm-change { border: 1px solid @wtm-border; border-radius: 4px; padding: 4px 16px; margin: 12px 0; }
+
+.wtm-diff {
+	.wtm-sec { border-top: 1px solid @wtm-border; padding: 4px 0 8px; }
+	.wtm-para { margin: 6px 0; line-height: 1.6; overflow-wrap: anywhere; }
+	del { background: @wtm-del-bg; color: @wtm-del-fg; text-decoration: line-through; }
+	ins { background: @wtm-ins-bg; color: @wtm-ins-fg; text-decoration: none; }
+	.wtm-para-added ins, .wtm-para-removed del { display: block; padding: 2px 6px; }
+	.wtm-unchanged summary { color: @wtm-muted; cursor: pointer; }
+	.wtm-unchanged .wtm-para { color: @wtm-muted; }
+}

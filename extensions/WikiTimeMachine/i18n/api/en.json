@@ -1,0 +1,22 @@
+{
+	"@metadata": { "authors": [ "Junction hackathon team" ] },
+	"apihelp-wtmarticles-summary": "List articles available in the Wikipedia Time Machine and their covered time windows.",
+	"apihelp-wtmarticles-param-query": "Filter by title substring.",
+	"apihelp-wtmsnapshot-summary": "Resolve the article revision that was current at a UTC time (via the system-versioned projection).",
+	"apihelp-wtmsnapshot-param-wiki": "Source wiki ID (default: the configured wiki, e.g. enwiki).",
+	"apihelp-wtmcompare-param-wiki": "Source wiki ID (default: the configured wiki).",
+	"apihelp-wtmask-param-wiki": "Source wiki ID (default: the configured wiki).",
+	"apihelp-wtmsnapshot-param-page": "Source page ID.",
+	"apihelp-wtmsnapshot-param-at": "UTC time (ISO 8601). A date without a time means the end of that day.",
+	"apihelp-wtmcompare-summary": "Resolve two UTC times and return both snapshots and a deterministic text diff.",
+	"apihelp-wtmcompare-param-page": "Source page ID.",
+	"apihelp-wtmcompare-param-before": "First UTC time (ISO 8601).",
+	"apihelp-wtmcompare-param-after": "Second UTC time (ISO 8601); must not be before the first.",
+	"apihelp-wtmask-summary": "Answer a question about two historical revisions with cited, side-specific evidence.",
+	"apihelp-wtmask-param-page": "Source page ID.",
+	"apihelp-wtmask-param-before": "First UTC time (ISO 8601).",
+	"apihelp-wtmask-param-after": "Second UTC time (ISO 8601).",
+	"apihelp-wtmask-param-question": "The question (3–500 characters).",
+	"apierror-wikitimemachine-service": "The time machine service failed: $1",
+	"apierror-wikitimemachine-input": "Invalid request: $1"
+}

@@ -1,0 +1,26 @@
+{
+	"@metadata": {
+		"authors": [
+			"Junction hackathon team"
+		]
+	},
+	"apihelp-wtmarticles-summary": "{{doc-apihelp-summary|wtmarticles}}",
+	"apihelp-wtmarticles-param-query": "{{doc-apihelp-param|wtmarticles|query}}",
+	"apihelp-wtmsnapshot-summary": "{{doc-apihelp-summary|wtmsnapshot}}",
+	"apihelp-wtmsnapshot-param-page": "{{doc-apihelp-param|wtmsnapshot|page}}",
+	"apihelp-wtmsnapshot-param-at": "{{doc-apihelp-param|wtmsnapshot|at}}",
+	"apihelp-wtmcompare-summary": "{{doc-apihelp-summary|wtmcompare}}",
+	"apihelp-wtmcompare-param-page": "{{doc-apihelp-param|wtmcompare|page}}",
+	"apihelp-wtmcompare-param-before": "{{doc-apihelp-param|wtmcompare|before}}",
+	"apihelp-wtmcompare-param-after": "{{doc-apihelp-param|wtmcompare|after}}",
+	"apihelp-wtmask-summary": "{{doc-apihelp-summary|wtmask}}",
+	"apihelp-wtmask-param-page": "{{doc-apihelp-param|wtmask|page}}",
+	"apihelp-wtmask-param-before": "{{doc-apihelp-param|wtmask|before}}",
+	"apihelp-wtmask-param-after": "{{doc-apihelp-param|wtmask|after}}",
+	"apihelp-wtmask-param-question": "{{doc-apihelp-param|wtmask|question}}",
+	"apierror-wikitimemachine-service": "Error message. Parameters: $1 - details.",
+	"apierror-wikitimemachine-input": "Error message. Parameters: $1 - details.",
+	"apihelp-wtmsnapshot-param-wiki": "{{doc-apihelp-param|wtmsnapshot|wiki}}",
+	"apihelp-wtmcompare-param-wiki": "{{doc-apihelp-param|wtmcompare|wiki}}",
+	"apihelp-wtmask-param-wiki": "{{doc-apihelp-param|wtmask|wiki}}"
+}

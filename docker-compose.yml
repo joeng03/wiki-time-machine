@@ -1,0 +1,67 @@
+name: wiki-time-machine
+services:
+  db:
+    image: mariadb:11.8.9   # pinned LTS patch; SVT historical insert + VECTOR verified on this tag
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?set in .env}
+      MW_DB_PASSWORD: ${MW_DB_PASSWORD:?set in .env}
+      WTM_IMPORTER_PASSWORD: ${WTM_IMPORTER_PASSWORD:?set in .env}
+      WTM_READER_PASSWORD: ${WTM_READER_PASSWORD:?set in .env}
+    volumes:
+      - dbdata:/var/lib/mysql
+      - ./docker/mariadb/init:/docker-entrypoint-initdb.d:ro
+      - ./docker/mariadb/conf/wtm.cnf:/etc/mysql/conf.d/wtm.cnf:ro
+    ports:
+      - "127.0.0.1:3307:3306"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+
+  service:
+    build: ./extensions/WikiTimeMachine/service
+    environment:
+      WTM_DB_HOST: db
+      WTM_DB_NAME: wtm
+      WTM_READER_USER: wtm_reader
+      WTM_READER_PASSWORD: ${WTM_READER_PASSWORD}
+      WTM_IMPORTER_USER: wtm_importer
+      WTM_IMPORTER_PASSWORD: ${WTM_IMPORTER_PASSWORD}
+      WTM_USER_AGENT: ${WTM_USER_AGENT:-}
+      WTM_EMBEDDER: ${WTM_EMBEDDER:-minilm}
+      WTM_LLM_BASE_URL: ${WTM_LLM_BASE_URL:-}
+      WTM_LLM_MODEL: ${WTM_LLM_MODEL:-}
+      WTM_LLM_API_KEY: ${WTM_LLM_API_KEY:-}
+      WTM_LLM_TIMEOUT: ${WTM_LLM_TIMEOUT:-45}
+      HF_HOME: /cache/hf
+    volumes:
+      - ./extensions/WikiTimeMachine/fixtures:/app/fixtures
+      - ./extensions/WikiTimeMachine/sql:/app/sql:ro
+      - ./downloads:/downloads
+      - hfcache:/cache
+    ports:
+      - "127.0.0.1:8077:8000"   # for local debugging/benchmarks only; MediaWiki uses the internal URL
+    depends_on:
+      db:
+        condition: service_healthy
+
+  mediawiki:
+    image: mediawiki:1.43.11   # PHP runtime image matching the pinned core checkout
+    volumes:
+      - ./mediawiki:/var/www/html
+      - ./extensions/WikiTimeMachine:/var/www/html/extensions/WikiTimeMachine:ro
+      - ./docker/mediawiki/LocalSettings.wtm.php:/var/www/html/LocalSettings.wtm.php:ro
+    ports:
+      - "127.0.0.1:8080:80"
+    environment:
+      MW_DB_PASSWORD: ${MW_DB_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+      service:
+        condition: service_started
+
+volumes:
+  dbdata:
+  hfcache:

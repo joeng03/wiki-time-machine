@@ -1,0 +1,11 @@
+[mariadbd]
+# All application timestamps are UTC.
+default-time-zone = +00:00
+# Needed for system_versioning_insert_history (explicit historical ROW START/END values).
+secure-timestamp = NO
+character-set-server = utf8mb4
+collation-server = utf8mb4_unicode_ci
+max_allowed_packet = 256M
+innodb_buffer_pool_size = 512M
+# HNSW vector index cache
+mhnsw_max_cache_size = 268435456

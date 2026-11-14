@@ -135,3 +135,19 @@ def test_articles_and_timeline(db, embedder, client):
                                          "end": "2023-05-01T00:00:00Z"}).json()["states"]
     assert [s["revision_id"] for s in tl] == [2, 3]
     assert tl[0]["source_timestamp"] == "2023-03-01T00:00:00Z" and tl[0]["start"] == "2023-04-01T00:00:00Z"
+
+
+def test_timeline_coverage_limits_and_invalid_ranges(db, embedder, client):
+    seed(db, embedder)
+    params = {"wiki_id": "enwiki", "page_id": 1, "start": "2020-01-01T00:00:00Z", "end": "2023-05-01T00:00:00Z"}
+    data = client.get("/timeline", params=params).json()
+    assert len(data["windows"]) == 2 and len(data["states"]) == 3
+    assert data["windows"][0]["end"] == "2020-02-01T00:00:00Z"
+    assert data["windows"][1]["start"] == "2023-04-01T00:00:00Z"
+    assert not data["truncated"]
+    assert all(s["url"].endswith(f"oldid={s['revision_id']}") and s["claims"] == [] for s in data["states"])
+    limited = client.get("/timeline", params={**params, "limit": 1}).json()
+    assert limited["truncated"] and len(limited["states"]) == 1
+    assert client.get("/timeline", params={**params, "end": params["start"]}).status_code == 400
+    assert client.get("/timeline", params={**params, "end": "2019-01-01"}).status_code == 400
+    assert client.get("/timeline", params={**params, "page_id": 999}).status_code == 404

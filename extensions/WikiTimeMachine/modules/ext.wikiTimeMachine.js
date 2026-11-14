@@ -11,7 +11,8 @@
 		articles = cfg.articles || [],
 		$form, $article, $before, $after, $compareBtn, $validation, $windows,
 		$status, $sides, $diff, $ask, $question, $askBtn, $answer,
-		lastCompare = null;
+		lastCompare = null, comparisonRequest = 0, claimsRequest = 0, askRequest = 0,
+		timelineKey = '', timelineRequest = 0, timelineData = null, timelineIndex = 0;
 
 	function el( tag, cls, text ) {
 		var node = document.createElement( tag );
@@ -107,6 +108,163 @@
 			return result.error.info;
 		}
 		return code || 'error';
+	}
+
+	// ---------------------------------------------------------------- timeline and claim evolution
+
+	function resetComparison() {
+		comparisonRequest++;
+		claimsRequest++;
+		askRequest++;
+		lastCompare = null;
+		$sides.empty();
+		$diff.empty();
+		$answer.empty();
+		$status.empty();
+		$ask.prop( 'hidden', true );
+		$( '#wtm-claims' ).prop( 'hidden', true );
+	}
+
+	function selectTimelineRevision( index ) {
+		if ( !timelineData || !timelineData.states.length ) {
+			return;
+		}
+		timelineIndex = Math.max( 0, Math.min( index, timelineData.states.length - 1 ) );
+		var s = timelineData.states[ timelineIndex ], root = document.getElementById( 'wtm-timeline-selected' );
+		$( root ).empty();
+		$( '#wtm-timeline-slider' ).val( timelineIndex ).attr( 'aria-valuetext', fmt( s.source_timestamp ) + ', oldid=' + s.revision_id );
+		$( '#wtm-timeline-prev' ).prop( 'disabled', timelineIndex === 0 );
+		$( '#wtm-timeline-next' ).prop( 'disabled', timelineIndex === timelineData.states.length - 1 );
+		$( '#wtm-timeline-track button' ).removeClass( 'wtm-tick-selected' ).eq( timelineIndex ).addClass( 'wtm-tick-selected' );
+		root.appendChild( el( 'p', 'wtm-hint', mw.msg( 'wikitimemachine-timeline-position', timelineIndex + 1, timelineData.states.length ) ) );
+		root.appendChild( link( s.url, mw.msg( 'wikitimemachine-resolved', s.revision_id, fmt( s.source_timestamp ) ) ) );
+		root.appendChild( el( 'p', 'wtm-hint', mw.msg( 'wikitimemachine-timeline-interval', fmt( s.start ), fmt( s.end ) ) ) );
+		if ( !s.content_available ) {
+			root.appendChild( el( 'p', 'wtm-empty', mw.msg( 'wikitimemachine-timeline-unavailable' ) ) );
+		} else if ( s.claims.length ) {
+			var sources = el( 'details' ), list = el( 'ul', 'wtm-claim-list' );
+			sources.appendChild( el( 'summary', null, mw.msg( 'wikitimemachine-timeline-selected-claims' ) ) );
+			s.claims.forEach( function ( c ) { list.appendChild( claimItem( c ) ); } );
+			sources.appendChild( list );
+			root.appendChild( sources );
+		} else if ( selectedArticle().claim_rows ) {
+			root.appendChild( el( 'p', 'wtm-empty', mw.msg( 'wikitimemachine-timeline-no-claims' ) ) );
+		}
+	}
+
+	function useTimelineRevision( side ) {
+		if ( !timelineData || !timelineData.states.length ) { return; }
+		var s = timelineData.states[ timelineIndex ];
+		( side === 'before' ? $before : $after ).val( fromUtc( s.start ) );
+		state.autoAsk = false;
+		resetComparison();
+		if ( validate() ) { compare(); }
+	}
+
+	function renderEvolution( data ) {
+		var root = document.getElementById( 'wtm-evolution-events' ), events = 0;
+		$( root ).empty();
+		$( '#wtm-evolution' ).prop( 'hidden', !selectedArticle().claim_rows );
+		data.states.forEach( function ( s, index ) {
+			var previous = index ? data.states[ index - 1 ] : null,
+				contiguous = previous && previous.end === s.start,
+				unavailable = !s.content_available || ( previous && !previous.content_available ),
+				oldClaims = contiguous && !unavailable ? previous.claims : [],
+				added = s.claims.filter( function ( c ) { return !oldClaims.some( function ( old ) { return old.claim_id === c.claim_id; } ); } ),
+				removed = oldClaims.filter( function ( c ) { return !s.claims.some( function ( current ) { return current.claim_id === c.claim_id; } ); } );
+			if ( !added.length && !removed.length && contiguous && !unavailable ) { return; }
+			if ( !s.claims.length && !oldClaims.length && !previous && !unavailable ) { return; }
+			events++;
+			var card = el( 'article', 'wtm-evolution-event' ), title = el( 'h3' );
+			title.appendChild( link( s.url, fmt( s.start ) + ' · oldid=' + s.revision_id ) );
+			card.appendChild( title );
+			if ( unavailable ) {
+				card.appendChild( el( 'p', 'wtm-note', mw.msg( 'wikitimemachine-evolution-unavailable' ) ) );
+			} else if ( !contiguous ) {
+				card.appendChild( el( 'p', 'wtm-note', mw.msg( previous ? 'wikitimemachine-evolution-boundary' : 'wikitimemachine-evolution-initial' ) ) );
+			}
+			[ [ contiguous && !unavailable ? 'wikitimemachine-evolution-added' : 'wikitimemachine-timeline-selected-claims', added ],
+				[ 'wikitimemachine-evolution-removed', removed ] ].forEach( function ( group ) {
+				if ( !group[ 1 ].length ) { return; }
+				card.appendChild( el( 'h4', null, mw.msg( group[ 0 ] ) ) );
+				group[ 1 ].forEach( function ( c ) {
+					card.appendChild( el( 'p', null, c.holder + ' · ' + c.display ) );
+				} );
+				var details = el( 'details' ), list = el( 'ul', 'wtm-claim-list' );
+				details.appendChild( el( 'summary', null, mw.msg( 'wikitimemachine-evolution-sources' ) ) );
+				group[ 1 ].forEach( function ( c ) { list.appendChild( claimItem( c ) ); } );
+				details.appendChild( list );
+				card.appendChild( details );
+			} );
+			if ( !s.claims.length ) {
+				card.appendChild( el( 'p', 'wtm-empty', mw.msg( s.content_available ? 'wikitimemachine-timeline-no-claims' : 'wikitimemachine-timeline-unavailable' ) ) );
+			}
+			if ( contiguous ) {
+				var button = el( 'button', 'cdx-button', mw.msg( 'wikitimemachine-evolution-compare' ) );
+				button.type = 'button';
+				button.addEventListener( 'click', function () {
+					$before.val( fromUtc( previous.start ) );
+					$after.val( fromUtc( s.start ) );
+					state.autoAsk = false;
+					compare();
+				} );
+				card.appendChild( button );
+			}
+			root.appendChild( card );
+		} );
+		if ( !events ) { root.appendChild( el( 'p', 'wtm-empty', mw.msg( 'wikitimemachine-evolution-empty' ) ) ); }
+	}
+
+	function loadTimeline() {
+		var art = selectedArticle(), key = art ? art.wiki_id + ':' + art.page_id : '';
+		if ( art && key === timelineKey ) { return; }
+		timelineKey = key;
+		timelineData = null;
+		var request = ++timelineRequest;
+		$( '#wtm-timeline' ).prop( 'hidden', !art );
+		$( '#wtm-timeline-controls, #wtm-evolution' ).prop( 'hidden', true );
+		$( '#wtm-timeline-track, #wtm-timeline-selected, #wtm-evolution-events' ).empty();
+		$( '#wtm-evolution' ).prop( 'open', false );
+		if ( !art ) { return; }
+		$( '#wtm-timeline-status' ).text( mw.msg( 'wikitimemachine-loading' ) );
+		var start = art.windows[ 0 ].start, end = art.windows[ art.windows.length - 1 ].end;
+		api.get( { action: 'wtmtimeline', formatversion: 2, wiki: art.wiki_id, page: art.page_id, start: start, end: end },
+			{ timeout: 30000 } ).then( function ( res ) {
+			if ( request !== timelineRequest ) { return; }
+			var data = res.wtmtimeline, track = document.getElementById( 'wtm-timeline-track' ),
+				min = Date.parse( start ), duration = Date.parse( end ) - min;
+			timelineData = data;
+			$( '#wtm-timeline-status' ).text( data.truncated ? mw.msg( 'wikitimemachine-timeline-truncated', data.limit ) :
+				( data.states.length ? '' : mw.msg( 'wikitimemachine-timeline-empty' ) ) );
+			data.windows.forEach( function ( w ) {
+				var band = el( 'span', 'wtm-timeline-coverage' );
+				band.style.left = ( Date.parse( w.start ) - min ) / duration * 100 + '%';
+				band.style.width = ( Date.parse( w.end ) - Date.parse( w.start ) ) / duration * 100 + '%';
+				band.title = fmt( w.start ) + ' – ' + fmt( w.end );
+				band.setAttribute( 'aria-hidden', 'true' );
+				track.appendChild( band );
+			} );
+			var index = 0, before = Date.parse( toUtc( $before.val() ) );
+			data.states.forEach( function ( s, i ) {
+				var tick = el( 'button', 'wtm-timeline-tick' );
+				tick.type = 'button';
+				tick.tabIndex = -1; // The labelled native slider exposes every revision to keyboard users.
+				tick.title = fmt( s.source_timestamp ) + ' · oldid=' + s.revision_id;
+				tick.setAttribute( 'aria-label', tick.title );
+				tick.style.left = ( Date.parse( s.start ) - min ) / duration * 100 + '%';
+				tick.addEventListener( 'click', function () { selectTimelineRevision( i ); } );
+				track.appendChild( tick );
+				if ( Date.parse( s.start ) <= before && before < Date.parse( s.end ) ) { index = i; }
+			} );
+			$( '#wtm-timeline-slider' ).attr( 'max', Math.max( 0, data.states.length - 1 ) );
+			$( '#wtm-timeline-controls' ).prop( 'hidden', !data.states.length );
+			selectTimelineRevision( index );
+			renderEvolution( data );
+		}, function ( code, result ) {
+			if ( request !== timelineRequest ) { return; }
+			timelineKey = ''; // Allow a retry after a temporary service failure.
+			$( '#wtm-timeline-status' ).text( mw.msg( 'wikitimemachine-timeline-error', errorText( code, result ) ) );
+		} );
 	}
 
 	// ---------------------------------------------------------------- sides
@@ -217,6 +375,8 @@
 	}
 
 	function compare() {
+		resetComparison();
+		loadTimeline();
 		if ( !validate() ) {
 			return;
 		}
@@ -227,10 +387,12 @@
 		$answer.empty();
 		lastCompare = null;
 		$ask.prop( 'hidden', true );
+		var request = comparisonRequest;
 		api.get( {
 			action: 'wtmcompare', formatversion: 2, wiki: wikiOf(),
 			page: $article.val(), before: toUtc( $before.val() ), after: toUtc( $after.val() )
 		}, { timeout: 30000 } ).then( function ( res ) {
+			if ( request !== comparisonRequest ) { return; }
 			var data = res.wtmcompare;
 			lastCompare = data;
 			$status.text( '' );
@@ -247,6 +409,7 @@
 				ask();
 			}
 		}, function ( code, result ) {
+			if ( request !== comparisonRequest ) { return; }
 			$status.text( mw.msg( 'wikitimemachine-compare-error', errorText( code, result ) ) );
 		} );
 	}
@@ -342,22 +505,25 @@
 
 	function ask() {
 		var q = $question.val().trim();
-		if ( q.length < 3 || !validate() ) {
+		if ( q.length < 3 || !validate() || !lastCompare ) {
 			return;
 		}
 		syncUrl();
 		$answer.empty().append( el( 'p', 'wtm-status', mw.msg( 'wikitimemachine-loading' ) ) );
 		$askBtn.prop( 'disabled', true );
+		var request = ++askRequest;
 		// Separate (longer) timeout from snapshot/diff requests.
 		api.get( {
 			action: 'wtmask', formatversion: 2, wiki: wikiOf(), page: $article.val(),
 			before: toUtc( $before.val() ), after: toUtc( $after.val() ), question: q
 		}, { timeout: 180000 } ).then( function ( res ) {
+			if ( request !== askRequest || q !== $question.val().trim() ) { return; }
 			renderAnswer( res.wtmask );
 		}, function ( code, result ) {
+			if ( request !== askRequest || q !== $question.val().trim() ) { return; }
 			$answer.empty().append( el( 'p', 'wtm-empty', mw.msg( 'wikitimemachine-compare-error', errorText( code, result ) ) ) );
 		} ).always( function () {
-			validate();
+			if ( request === askRequest ) { validate(); }
 		} );
 	}
 
@@ -437,12 +603,15 @@
 		url.searchParams.set( 'validat', v );
 		window.history.replaceState( null, '', url.toString() );
 		$( '#wtm-claims-result' ).empty().append( el( 'p', 'wtm-status', mw.msg( 'wikitimemachine-loading' ) ) );
+		var request = ++claimsRequest, comparison = lastCompare;
 		api.get( {
 			action: 'wtmclaims', formatversion: 2, wiki: wikiOf(), page: $article.val(),
 			before: toUtc( $before.val() ), after: toUtc( $after.val() ), validat: v
 		}, { timeout: 30000 } ).then( function ( res ) {
+			if ( request !== claimsRequest || comparison !== lastCompare ) { return; }
 			renderClaims( res.wtmclaims );
 		}, function ( code, result ) {
+			if ( request !== claimsRequest || comparison !== lastCompare ) { return; }
 			$( '#wtm-claims-result' ).empty().append( el( 'p', 'wtm-empty', mw.msg( 'wikitimemachine-compare-error', errorText( code, result ) ) ) );
 		} );
 	}
@@ -499,7 +668,16 @@
 			e.preventDefault();
 			compare();
 		} );
-		$article.add( $before ).add( $after ).on( 'change input', validate );
+		$article.add( $before ).add( $after ).on( 'change input', function () {
+			resetComparison();
+			validate();
+			loadTimeline();
+		} );
+		$( '#wtm-timeline-slider' ).on( 'input change', function () { selectTimelineRevision( Number( this.value ) ); } );
+		$( '#wtm-timeline-prev' ).on( 'click', function () { selectTimelineRevision( timelineIndex - 1 ); } );
+		$( '#wtm-timeline-next' ).on( 'click', function () { selectTimelineRevision( timelineIndex + 1 ); } );
+		$( '#wtm-timeline-before' ).on( 'click', function () { useTimelineRevision( 'before' ); } );
+		$( '#wtm-timeline-after' ).on( 'click', function () { useTimelineRevision( 'after' ); } );
 		$askBtn.on( 'click', ask );
 		$( '#wtm-claims-button' ).on( 'click', checkClaims );
 		$question.on( 'keydown', function ( e ) {
@@ -510,6 +688,7 @@
 		} );
 		renderExamples();
 		validate();
+		loadTimeline();
 		if ( state.page && state.before && state.after ) {
 			state.autoAsk = !!state.question;
 			compare();

@@ -62,7 +62,7 @@ archives. Those are possible applications of the architecture, not integrations 
 ## Architecture
 
 ```
-Browser ──same-origin──▶ MediaWiki 1.43.11 (Special:WikiTimeMachine, api.php?action=wtm{articles,snapshot,compare,ask,claims})
+Browser ──same-origin──▶ MediaWiki 1.43.11 (Special:WikiTimeMachine, api.php?action=wtm{articles,snapshot,compare,ask,claims,timeline})
                                │ server-side PHP ServiceClient (internal URL, timeouts)
                                ▼
                          Python service (FastAPI, read-only DB user)  ◀── wtm CLI (importer user):
@@ -299,6 +299,23 @@ and select an example button. **Compare versions** resolves the revisions and sh
 uses the question field to retrieve evidence and request a generated answer. For the prime minister
 and president examples, **Held office on** supplies the independent application-time date.
 
+**Revision timeline:** selecting an article loads its captured revision intervals. Green bands mark
+verified coverage and striped gaps mark missing history. Click a revision marker or use the labelled
+slider and previous/next buttons, then choose **Use as first date** or **Use as second date**. The
+comparison uses the selected interval's covered start, which may be later than the revision's save
+time when the revision predates the capture window. The slider steps through revisions; marker
+positions on the coverage strip represent actual UTC time. Large gaps can cluster markers, so the
+slider remains the precise way to step through every captured revision.
+
+**Claim evolution:** for the two officeholder articles, expand the timeline's claim evolution view.
+It lists changes to published extracted claims, including holder names and tenure dates, and omits
+unchanged revisions. Expand an event's supporting excerpts to inspect the original revision links.
+**Compare these revisions** selects the immediately preceding and current captured revisions.
+For example, the December 2019 prime minister edits show “Saana Marin” with a December 7 start,
+then December 8, before later spelling/date corrections. The view records changes to article
+assertions; it does not automatically classify them as factual corrections. Capture boundaries and
+unavailable text explicitly leave intervening changes unknown rather than inventing a transition.
+
 The public demo is a prepared archive, not an unrestricted live Wikipedia search. The five English
 articles cover selected windows; Erik Edner has the imported organizer history. Choosing a date
 outside those windows gives an explicit coverage result. No visitor account is needed to read it;
@@ -406,7 +423,8 @@ to internal FastAPI requests; the two API interfaces deliberately have different
 | `wtmcompare` | `GET /compare` | Resolve two snapshots and return the diff |
 | `wtmask` | `POST /ask` | Retrieve revision-specific evidence and optionally generate an answer |
 | `wtmclaims` | `GET /claims` | Compare tenure claims at a valid date under two source views |
-| Internal only | `GET /timeline`, `GET /search`, `GET /health` | Inspect temporal intervals, search the separate corpus, check service/database state |
+| `wtmtimeline` | `GET /timeline` | Captured revision intervals, verified windows, revision links and published claim evidence |
+| Internal only | `GET /search`, `GET /health` | Search the separate corpus and check service/database state |
 
 For example, this public read request resolves the Olkiluoto snapshots without calling the LLM:
 
@@ -422,6 +440,12 @@ curl -fsSG 'https://wiki-time-machine-joeng03.fly.dev/api.php' \
 
 MediaWiki uses `wiki`, `page` and `validat`; the corresponding FastAPI fields are `wiki_id`, `page_id`
 and `valid_at`. Model-backed questions are limited to 500 characters by the current service.
+
+`wtmtimeline` accepts `wiki`, `page`, `start` and exclusive `end`, with the same UTC normalization
+as the other actions. It returns at most 1,000 revision intervals and explicitly reports truncation.
+Its internal FastAPI route also accepts `limit` from 1 to 1,000. Snapshot and claim build IDs are
+pinned for each response; claims are restricted to published extractors and cite that interval's
+own revision. Loading either new view does not call the LLM, import data or modify the database.
 
 ## Deployment on Fly.io
 
@@ -626,11 +650,11 @@ Warm `/ask` end to end without a model: resolve ≈7 ms, query embedding ≈4 ms
 
 | suite | command | result |
 |---|---|---|
-| Python unit + MariaDB integration (synthetic fixtures, hash embedder, mocked LLM) | `make test-db` | **41 passed** |
+| Python unit + MariaDB integration (synthetic fixtures, hash embedder, mocked LLM) | `make test-db` | **43 passed** |
 | PHPUnit (`TimeInput`) | `make test-php` | **11 tests, 14 assertions OK** |
-| End-to-end through MediaWiki `api.php` on real cached data (incl. live Nemotron ask, bitemporal claims) | `make test-e2e` | **5 passed** |
+| End-to-end through MediaWiki `api.php` on real cached data (incl. live Nemotron ask, bitemporal claims and timeline evolution) | `make test-e2e` | **6 passed** |
 | Offline reproduction from committed English fixtures in a fresh database | `make demo` | 258 intervals / 1,536 checks; 21 claim rows / 106 checks. Add organizer M for 286 / 1,703 |
-| Deployed Fly.io end-to-end suite | Commands in the deployment section | **5 passed** against public HTTPS and deployed DB |
+| Deployed Fly.io end-to-end suite | Commands in the deployment section | **6 passed** against public HTTPS and deployed DB |
 | Permanent links vs stored text (live Wikipedia) | `make verify-links` | **217/217 match** |
 | Browser: headless Chrome on the special page (desktop + 390 px; claims panel; live Nemotron answer) | manual script | renders, no JS errors, no horizontal scroll |
 
@@ -643,6 +667,9 @@ rejected; model outage; schema-constrained output, 400 fallback, empty/length-tr
 bitemporal claims (precision and sentinel semantics, infobox extraction, model-claim validation, per-chunk cache,
 AS OF + valid-time queries, assertion history, claim-build reuse); reversed/invalid dates; XSS in query string; continuation object sent back intact;
 Retry-After; page cap; Parquet adapter (schema, provenance, parent-chain completeness, no editor columns).
+Timeline checks cover missing windows, invalid/equal ranges, truncation, unknown pages, published-extractor
+isolation and revision-specific claim excerpts. The real-data timeline test follows a changed tenure
+start date and verifies that selecting the adjacent intervals resolves the exact intended revision IDs.
 
 ## Incomplete / limitations (honest status)
 

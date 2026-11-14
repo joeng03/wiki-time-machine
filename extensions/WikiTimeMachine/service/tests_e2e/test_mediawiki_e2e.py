@@ -95,3 +95,28 @@ def test_bitemporal_claims_through_mediawiki():
             assert c["sources"] and all(s["url"].endswith(f"oldid={rid}") for s in c["sources"])
             assert any(s["extractor"] == "infobox-v1" for s in c["sources"])
     assert "FOR SYSTEM_TIME AS OF" in d["sql"] and "valid_from <=" in d["sql"]
+
+
+def test_timeline_and_claim_evolution_through_mediawiki(db):
+    d = api(action="wtmtimeline", page=231789, start="2019-12-01T00:00:00Z", end="2023-07-01T00:00:00Z")["wtmtimeline"]
+    states = d["states"]
+    assert len(d["windows"]) == 2 and not d["truncated"]
+    assert any(a["end"] != b["start"] for a, b in zip(states, states[1:]))
+    corrected = next(i for i, s in enumerate(states) if any(
+        c["holder"] == "Saana Marin" and c["display"].startswith("2019-12-08") for c in s["claims"]))
+    old, new = states[corrected - 1], states[corrected]
+    assert any(c["holder"] == "Saana Marin" and c["display"].startswith("2019-12-07") for c in old["claims"])
+    compared = api(action="wtmcompare", page=231789, before=old["start"], after=new["start"])["wtmcompare"]
+    assert compared["before"]["revision_id"] == old["revision_id"]
+    assert compared["after"]["revision_id"] == new["revision_id"]
+    with db.cursor() as cur:
+        for s in (old, new):
+            for c in s["claims"]:
+                assert c["sources"]
+                for source in c["sources"]:
+                    assert source["url"] == s["url"] and source["revision_id"] == s["revision_id"]
+                    cur.execute("SELECT excerpt FROM wiki_revision_claim WHERE wiki_id='enwiki' AND revision_id=%s AND claim_id=%s",
+                                (s["revision_id"], c["claim_id"]))
+                    assert source["excerpt"] in {row["excerpt"] for row in cur.fetchall()}
+    invalid = api(action="wtmtimeline", page=231789, start="2023-07-01", end="2019-12-01")
+    assert invalid["error"]["code"] == "wtm-invalid_range"

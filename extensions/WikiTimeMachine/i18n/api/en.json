@@ -28,5 +28,10 @@
 	"apihelp-wtmclaims-param-page": "Source page ID.",
 	"apihelp-wtmclaims-param-before": "First Wikipedia (system) time, UTC.",
 	"apihelp-wtmclaims-param-after": "Second Wikipedia (system) time, UTC.",
-	"apihelp-wtmclaims-param-validat": "Date the office was held (application time), YYYY-MM-DD."
+	"apihelp-wtmclaims-param-validat": "Date the office was held (application time), YYYY-MM-DD.",
+	"apihelp-wtmtimeline-summary": "List captured revision intervals and their published officeholder claims with source excerpts.",
+	"apihelp-wtmtimeline-param-wiki": "Source wiki ID (default: the configured wiki).",
+	"apihelp-wtmtimeline-param-page": "Source page ID.",
+	"apihelp-wtmtimeline-param-start": "Start of the timeline range, UTC (ISO 8601).",
+	"apihelp-wtmtimeline-param-end": "Exclusive end of the timeline range, UTC (ISO 8601); must be after start."
 }

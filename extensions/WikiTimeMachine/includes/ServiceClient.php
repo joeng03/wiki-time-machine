@@ -46,6 +46,12 @@ class ServiceClient {
 		], null, $this->timeout );
 	}
 
+	public function timeline( int $pageId, string $start, string $end, ?string $wikiId = null ): array {
+		return $this->request( 'GET', '/timeline', [
+			'wiki_id' => $wikiId ?? $this->wikiId, 'page_id' => $pageId, 'start' => $start, 'end' => $end,
+		], null, $this->timeout );
+	}
+
 	public function ask( int $pageId, string $before, string $after, string $question, ?string $wikiId = null ): array {
 		return $this->request( 'POST', '/ask', [], [
 			'wiki_id' => $wikiId ?? $this->wikiId, 'page_id' => $pageId, 'before' => $before, 'after' => $after,

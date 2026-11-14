@@ -118,6 +118,35 @@ def test_bitemporal_infobox_only(db, embedder):
     assert project_claims(db, b, [INFOBOX_EXTRACTOR], log=lambda *_: None)["reused"]
 
 
+def test_timeline_claims_use_published_extractors_and_each_revisions_evidence(db, embedder, client):
+    b = seed(db, embedder)
+    extract_for_build(db, b, [("enwiki", 7)], log=lambda *_: None)
+    project_claims(db, b, [INFOBOX_EXTRACTOR], log=lambda *_: None)
+    # A staged extractor's source must not leak into the published timeline.
+    with db.cursor() as cur:
+        cur.execute("INSERT INTO wiki_revision_claim (wiki_id,revision_id,claim_id,extractor,source_ref,excerpt) "
+                    "SELECT wiki_id,revision_id,claim_id,'unpublished','staged','not published' "
+                    "FROM wiki_revision_claim LIMIT 1")
+    data = client.get("/timeline", params={"wiki_id": "enwiki", "page_id": 7,
+                     "start": "2019-12-01T00:00:00Z", "end": "2023-07-01T00:00:00Z"}).json()
+    assert data["claim_build_id"] == active_claim_build(db, b)
+    states = data["states"]
+    assert [s["revision_id"] for s in states] == [1, 2, 2, 3]
+    assert any(c["holder"] == "Antti Rinne" for c in states[0]["claims"])
+    assert any(c["holder"] == "Sanna Marin" for c in states[1]["claims"])
+    assert any(c["holder"] == "Petteri Orpo" for c in states[-1]["claims"])
+    assert not any(c["holder"] == "Petteri Orpo" for s in states[:-1] for c in s["claims"])
+    assert states[1]["end"] != states[2]["start"]  # The unobserved years remain a gap.
+    for s in states:
+        for c in s["claims"]:
+            assert c["sources"]
+            for source in c["sources"]:
+                assert source["revision_id"] == s["revision_id"]
+                assert source["url"] == s["url"]
+                assert source["extractor"] == INFOBOX_EXTRACTOR
+                assert source["excerpt"] != 'not published'
+
+
 def test_bitemporal_with_llm_extractor(db, embedder, client):
     b = seed(db, embedder)
     calls = []

@@ -54,6 +54,34 @@ class SpecialWikiTimeMachine extends SpecialPage {
 		$out->addHTML( Html::rawElement( 'noscript', [], Html::warningBox( $this->msg( 'wikitimemachine-noscript' )->escaped() ) ) );
 		$out->addHTML( $this->renderForm( $articles, $state ) );
 		$out->addHTML( Html::rawElement( 'div', [ 'id' => 'wtm-examples', 'class' => 'wtm-examples' ], '' ) );
+		$out->addHTML( Html::rawElement( 'section', [
+			'id' => 'wtm-timeline', 'class' => 'wtm-timeline', 'hidden' => true,
+			'aria-labelledby' => 'wtm-timeline-heading',
+		],
+			Html::element( 'h2', [ 'id' => 'wtm-timeline-heading' ], $this->msg( 'wikitimemachine-timeline-heading' )->text() ) .
+			Html::element( 'p', [ 'id' => 'wtm-timeline-help', 'class' => 'wtm-hint' ], $this->msg( 'wikitimemachine-timeline-help' )->text() ) .
+			Html::element( 'div', [ 'id' => 'wtm-timeline-status', 'role' => 'status' ], '' ) .
+			Html::element( 'div', [ 'id' => 'wtm-timeline-track', 'class' => 'wtm-timeline-track' ], '' ) .
+			Html::rawElement( 'div', [ 'id' => 'wtm-timeline-controls', 'hidden' => true ],
+				Html::element( 'label', [ 'for' => 'wtm-timeline-slider' ], $this->msg( 'wikitimemachine-timeline-select' )->text() ) .
+				Html::element( 'input', [ 'id' => 'wtm-timeline-slider', 'type' => 'range', 'min' => 0, 'max' => 0,
+					'step' => 1, 'value' => 0, 'aria-describedby' => 'wtm-timeline-help' ] ) .
+				Html::rawElement( 'div', [ 'class' => 'wtm-timeline-actions' ],
+					Html::element( 'button', [ 'id' => 'wtm-timeline-prev', 'type' => 'button', 'class' => 'cdx-button' ], $this->msg( 'wikitimemachine-timeline-prev' )->text() ) .
+					Html::element( 'button', [ 'id' => 'wtm-timeline-next', 'type' => 'button', 'class' => 'cdx-button' ], $this->msg( 'wikitimemachine-timeline-next' )->text() )
+				) .
+				Html::element( 'div', [ 'id' => 'wtm-timeline-selected', 'aria-live' => 'polite' ], '' ) .
+				Html::rawElement( 'div', [ 'class' => 'wtm-timeline-actions' ],
+					Html::element( 'button', [ 'id' => 'wtm-timeline-before', 'type' => 'button', 'class' => 'cdx-button' ], $this->msg( 'wikitimemachine-timeline-before' )->text() ) .
+					Html::element( 'button', [ 'id' => 'wtm-timeline-after', 'type' => 'button', 'class' => 'cdx-button' ], $this->msg( 'wikitimemachine-timeline-after' )->text() )
+				)
+			) .
+			Html::rawElement( 'details', [ 'id' => 'wtm-evolution', 'class' => 'wtm-evolution', 'hidden' => true ],
+				Html::element( 'summary', [], $this->msg( 'wikitimemachine-evolution-heading' )->text() ) .
+				Html::element( 'p', [ 'class' => 'wtm-hint' ], $this->msg( 'wikitimemachine-evolution-help' )->text() ) .
+				Html::element( 'div', [ 'id' => 'wtm-evolution-events' ], '' )
+			)
+		) );
 		$out->addHTML( Html::rawElement( 'div', [ 'id' => 'wtm-status', 'class' => 'wtm-status', 'role' => 'status', 'aria-live' => 'polite' ], '' ) );
 		$out->addHTML( Html::rawElement( 'div', [ 'id' => 'wtm-sides', 'class' => 'wtm-sides' ], '' ) );
 		$out->addHTML( Html::rawElement( 'section', [ 'id' => 'wtm-ask', 'class' => 'wtm-ask', 'hidden' => true ],

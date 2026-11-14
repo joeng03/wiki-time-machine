@@ -15,7 +15,7 @@ from .db import server_capabilities, session
 from .diff import diff_sections
 from .embed import get_embedder
 from .retrieval import corpus_search, revision_evidence
-from .snapshots import NoActiveBuild, list_articles, pinned_build, resolve, timeline
+from .snapshots import NoActiveBuild, list_articles, pinned_build, resolve, timeline, coverage, page_info, oldid_url
 from .timeutil import TimeInputError, parse_utc
 
 app = FastAPI(title="WikiTimeMachine service", version=__version__)
@@ -99,12 +99,32 @@ def snapshot(wiki_id: str, page_id: int, at: str, sections: bool = True):
 
 
 @app.get("/timeline")
-def get_timeline(wiki_id: str, page_id: int, start: str, end: str):
+def get_timeline(wiki_id: str, page_id: int, start: str, end: str, limit: int = Query(1000, ge=1, le=1000)):
     s, _ = _t(start, "start")
     e, _ = _t(end, "end")
+    if s >= e:
+        raise HTTPException(400, detail={"code": "invalid_range", "message": "The timeline start must be before its end."})
+    from .claims import active_claim_build, attach_timeline_claims
+    from .timeutil import iso
     with _db() as conn:
         build_id = pinned_build(conn)
-        return {"build_id": build_id, "states": timeline(conn, build_id, wiki_id, page_id, s, e)}
+        page = page_info(conn, wiki_id, page_id)
+        if page is None:
+            raise HTTPException(404, detail={"code": "unknown_page", "message": "Article not ingested."})
+        states = timeline(conn, build_id, wiki_id, page_id, s, e, limit + 1)
+        truncated = len(states) > limit
+        states = states[:limit]
+        for state in states:
+            state["url"] = oldid_url(page["source_host"], state["revision_id"])
+            state["claims"] = []
+        cbid = active_claim_build(conn, build_id)
+        if cbid:
+            attach_timeline_claims(conn, build_id, cbid, wiki_id, page_id, states)
+        windows = [{"start": iso(max(s, w["coverage_start"])), "end": iso(min(e, w["coverage_end"]))}
+                   for w in coverage(conn, build_id, wiki_id, page_id)
+                   if w["coverage_start"] < e and w["coverage_end"] > s]
+        return {"build_id": build_id, "claim_build_id": cbid, "states": states, "windows": windows,
+                "truncated": truncated, "limit": limit}
 
 
 def _resolve_pair(conn, wiki_id: str, page_id: int, before: str, after: str, sections: bool):

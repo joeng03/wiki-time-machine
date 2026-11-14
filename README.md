@@ -132,7 +132,17 @@ passages above among the top-5 on each side (generation disabled → evidence vi
 ## Measured results
 
 See `extensions/WikiTimeMachine/docs/benchmarks.md` (row counts, EXPLAIN plans, latency; no LLM calls).
-Summary — **BENCH_SUMMARY**
+Summary (SQL only, p50 / p95):
+
+| | size 1 (217 revisions, 3.9 k corpus passages) | size 2 (245 revisions, 13.2 k corpus passages) |
+|---|---|---|
+| SVT `AS OF` snapshot selection | 0.23 / 0.42 ms | 0.39 / 1.56 ms |
+| revision-scoped exact top-5 (`VEC_DISTANCE_COSINE`) | 1.12 / 3.32 ms | 1.28 / 1.85 ms |
+| corpus ANN top-10 (HNSW index) | 0.51 / 3.47 ms, recall@10 0.875 | 0.62 / 17.7 ms, recall@10 0.90 |
+| corpus exact top-10 (`IGNORE INDEX`) | 161 / 183 ms | 542 / 642 ms |
+
+Warm `/ask` end to end without a model: resolve ≈7 ms, query embedding ≈4 ms, retrieval ≈5 ms;
+`/compare` (two snapshots + diff) ≈30 ms. Validation of build 3: 245 intervals, 1,417 checks passed.
 
 ## Tests (all run on 2026-11-14)
 

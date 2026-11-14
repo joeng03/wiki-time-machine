@@ -55,7 +55,7 @@ corpus:           ## organizer S dataset (English articles) -> corpus_passage fo
 	$(SVC) python -m wtm.cli corpus --file /downloads/s-2026-10/articles-en.parquet $(if $(LIMIT),--limit $(LIMIT),)
 
 bench:            ## row counts, plans, latency (no LLM)
-	$(SVC) python -m wtm.cli bench --label "$(or $(LABEL),local)" --out /app/fixtures/bench-$(or $(LABEL),local).md
+	$(SVC) python -m wtm.cli bench --label "$(or $(LABEL),local)" --out /app/fixtures/bench-$(or $(LABEL),local).md  # copy to docs/bench/ to keep
 
 verify-links:     ## live check that oldid links serve the stored text (needs WTM_USER_AGENT)
 	$(SVC) python -m wtm.cli verify-links --limit 400

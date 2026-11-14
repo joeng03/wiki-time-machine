@@ -1,0 +1,13 @@
+# Upstream checkout (pinned; recreated by scripts/setup-mediawiki.sh)
+/mediawiki/
+# Local secrets and state
+.env
+*.log
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+/data/
+/cache/
+# Large downloads (organizer datasets)
+/downloads/

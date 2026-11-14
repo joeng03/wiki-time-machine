@@ -1,0 +1,138 @@
+{
+  "label": "size-1: 3 articles history + 1,000 corpus articles",
+  "embed_model": "sentence-transformers/all-MiniLM-L6-v2@1110a243fdf4/onnx-meanpool-l2",
+  "counts": {
+    "wiki_revision": 217,
+    "wiki_snapshot_all_versions": 434,
+    "wiki_chunk": 399,
+    "wiki_revision_chunk": 2985,
+    "corpus_passage": 3897
+  },
+  "snapshot_as_of": {
+    "n": 200,
+    "p50_ms": 0.23,
+    "p95_ms": 0.42,
+    "max_ms": 1.98
+  },
+  "snapshot_plan": [
+    {
+      "id": 1,
+      "select_type": "SIMPLE",
+      "table": "wiki_snapshot",
+      "type": "range",
+      "possible_keys": "PRIMARY",
+      "key": "PRIMARY",
+      "key_len": "153",
+      "ref": null,
+      "rows": "88",
+      "Extra": "Using where"
+    }
+  ],
+  "revision_exact_topk": {
+    "n": 100,
+    "p50_ms": 1.12,
+    "p95_ms": 3.32,
+    "max_ms": 17.2
+  },
+  "revision_ann_with_predicate": {
+    "n": 100,
+    "p50_ms": 0.95,
+    "p95_ms": 3.08,
+    "max_ms": 19.49,
+    "recall_at_5_vs_exact": 1.0,
+    "underfilled_or_missed": 0
+  },
+  "revision_exact_plan": [
+    {
+      "id": 1,
+      "select_type": "SIMPLE",
+      "table": "rc",
+      "type": "ref",
+      "possible_keys": "PRIMARY,idx_chunk",
+      "key": "PRIMARY",
+      "key_len": "138",
+      "ref": "const,const",
+      "rows": "13",
+      "Extra": "Using where; Using temporary; Using filesort"
+    },
+    {
+      "id": 1,
+      "select_type": "SIMPLE",
+      "table": "c",
+      "type": "eq_ref",
+      "possible_keys": "PRIMARY",
+      "key": "PRIMARY",
+      "key_len": "8",
+      "ref": "wtm.rc.chunk_id",
+      "rows": "1",
+      "Extra": ""
+    }
+  ],
+  "revision_ann_plan": [
+    {
+      "id": 1,
+      "select_type": "PRIMARY",
+      "table": "rc",
+      "type": "ref",
+      "possible_keys": "PRIMARY,idx_chunk",
+      "key": "PRIMARY",
+      "key_len": "138",
+      "ref": "const,const",
+      "rows": "13",
+      "Extra": "Using where; Start temporary; Using temporary; Using filesort"
+    },
+    {
+      "id": 1,
+      "select_type": "PRIMARY",
+      "table": "c",
+      "type": "eq_ref",
+      "possible_keys": "PRIMARY",
+      "key": "PRIMARY",
+      "key_len": "8",
+      "ref": "wtm.rc.chunk_id",
+      "rows": "1",
+      "Extra": "End temporary"
+    }
+  ],
+  "corpus_ann_top10": {
+    "n": 40,
+    "p50_ms": 0.51,
+    "p95_ms": 3.47,
+    "max_ms": 15.32,
+    "recall_at_10_vs_exact": 0.875
+  },
+  "corpus_exact_top10": {
+    "n": 8,
+    "p50_ms": 161.3,
+    "p95_ms": 183.29,
+    "max_ms": 183.29
+  },
+  "corpus_ann_plan": [
+    {
+      "id": 1,
+      "select_type": "SIMPLE",
+      "table": "corpus_passage",
+      "type": "index",
+      "possible_keys": null,
+      "key": "idx_corpus_embedding",
+      "key_len": "1538",
+      "ref": null,
+      "rows": "10",
+      "Extra": ""
+    }
+  ],
+  "corpus_exact_plan": [
+    {
+      "id": 1,
+      "select_type": "SIMPLE",
+      "table": "corpus_passage",
+      "type": "ALL",
+      "possible_keys": null,
+      "key": null,
+      "key_len": null,
+      "ref": null,
+      "rows": "3126",
+      "Extra": "Using filesort"
+    }
+  ]
+}

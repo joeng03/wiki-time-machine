@@ -1,0 +1,162 @@
+{
+	"name": "WikiTimeMachine",
+	"version": "0.1.0",
+	"author": [
+		"Junction hackathon team"
+	],
+	"url": "https://www.mediawiki.org/wiki/Extension:WikiTimeMachine",
+	"descriptionmsg": "wikitimemachine-desc",
+	"license-name": "GPL-2.0-or-later",
+	"type": "specialpage",
+	"requires": {
+		"MediaWiki": ">= 1.43.0"
+	},
+	"AutoloadNamespaces": {
+		"MediaWiki\\Extension\\WikiTimeMachine\\": "includes/"
+	},
+	"TestAutoloadNamespaces": {
+		"MediaWiki\\Extension\\WikiTimeMachine\\Tests\\": "tests/phpunit/"
+	},
+	"MessagesDirs": {
+		"WikiTimeMachine": [
+			"i18n",
+			"i18n/api"
+		]
+	},
+	"ExtensionMessagesFiles": {
+		"WikiTimeMachineAlias": "WikiTimeMachine.alias.php"
+	},
+	"SpecialPages": {
+		"WikiTimeMachine": {
+			"class": "MediaWiki\\Extension\\WikiTimeMachine\\SpecialWikiTimeMachine",
+			"services": [
+				"WikiTimeMachine.ServiceClient"
+			]
+		}
+	},
+	"APIModules": {
+		"wtmarticles": {
+			"class": "MediaWiki\\Extension\\WikiTimeMachine\\Api\\ApiWtmArticles",
+			"services": [
+				"WikiTimeMachine.ServiceClient"
+			]
+		},
+		"wtmsnapshot": {
+			"class": "MediaWiki\\Extension\\WikiTimeMachine\\Api\\ApiWtmSnapshot",
+			"services": [
+				"WikiTimeMachine.ServiceClient"
+			]
+		},
+		"wtmcompare": {
+			"class": "MediaWiki\\Extension\\WikiTimeMachine\\Api\\ApiWtmCompare",
+			"services": [
+				"WikiTimeMachine.ServiceClient"
+			]
+		},
+		"wtmask": {
+			"class": "MediaWiki\\Extension\\WikiTimeMachine\\Api\\ApiWtmAsk",
+			"services": [
+				"WikiTimeMachine.ServiceClient"
+			]
+		},
+		"wtmclaims": {
+			"class": "MediaWiki\\Extension\\WikiTimeMachine\\Api\\ApiWtmClaims",
+			"services": [
+				"WikiTimeMachine.ServiceClient"
+			]
+		}
+	},
+	"ServiceWiringFiles": [
+		"includes/ServiceWiring.php"
+	],
+	"config": {
+		"WikiTimeMachineServiceUrl": {
+			"value": "http://127.0.0.1:8000",
+			"description": "Internal base URL of the WikiTimeMachine retrieval service. Never exposed to browsers."
+		},
+		"WikiTimeMachineServiceTimeout": {
+			"value": 15,
+			"description": "Timeout (seconds) for article/snapshot/compare requests."
+		},
+		"WikiTimeMachineAskTimeout": {
+			"value": 150,
+			"description": "Timeout (seconds) for question answering requests (may include model generation)."
+		},
+		"WikiTimeMachineDefaultWiki": {
+			"value": "enwiki",
+			"description": "Wiki ID of the source articles."
+		},
+		"WikiTimeMachineExamples": {
+			"value": [],
+			"description": "Optional list of example comparisons shown on the special page: [ { label, page, before, after, question } ]."
+		}
+	},
+	"ResourceFileModulePaths": {
+		"localBasePath": "modules",
+		"remoteExtPath": "WikiTimeMachine/modules"
+	},
+	"ResourceModules": {
+		"ext.wikiTimeMachine": {
+			"packageFiles": [
+				"ext.wikiTimeMachine.js"
+			],
+			"styles": [
+				"ext.wikiTimeMachine.less"
+			],
+			"dependencies": [
+				"mediawiki.api",
+				"mediawiki.util"
+			],
+			"messages": [
+				"wikitimemachine-loading",
+				"wikitimemachine-compare-error",
+				"wikitimemachine-reversed",
+				"wikitimemachine-requested",
+				"wikitimemachine-resolved",
+				"wikitimemachine-open-revision",
+				"wikitimemachine-status-not_covered",
+				"wikitimemachine-status-no_revision",
+				"wikitimemachine-status-unavailable",
+				"wikitimemachine-status-unknown_page",
+				"wikitimemachine-insufficient",
+				"wikitimemachine-no-change",
+				"wikitimemachine-same-revision",
+				"wikitimemachine-unchanged-collapsed",
+				"wikitimemachine-lead",
+				"wikitimemachine-section-added",
+				"wikitimemachine-section-removed",
+				"wikitimemachine-answer-heading",
+				"wikitimemachine-evidence-heading",
+				"wikitimemachine-gen-disabled",
+				"wikitimemachine-gen-unavailable",
+				"wikitimemachine-gen-rejected",
+				"wikitimemachine-change-heading",
+				"wikitimemachine-no-support",
+				"wikitimemachine-windows",
+				"wikitimemachine-date-only-note",
+				"wikitimemachine-extracted-note",
+				"wikitimemachine-diff-stats",
+				"wikitimemachine-side-before",
+				"wikitimemachine-side-after",
+				"wikitimemachine-pick-article",
+				"wikitimemachine-cites",
+				"wikitimemachine-claims-heading",
+				"wikitimemachine-claims-intro",
+				"wikitimemachine-claims-validat",
+				"wikitimemachine-claims-check",
+				"wikitimemachine-claims-asof",
+				"wikitimemachine-claims-none",
+				"wikitimemachine-claims-history",
+				"wikitimemachine-claims-history-cols",
+				"wikitimemachine-claims-status-ongoing",
+				"wikitimemachine-claims-status-ended",
+				"wikitimemachine-claims-status-unknown",
+				"wikitimemachine-claims-extractor-infobox",
+				"wikitimemachine-claims-extractor-llm",
+				"wikitimemachine-claims-sql",
+				"wikitimemachine-claims-unavailable"
+			]
+		}
+	},
+	"manifest_version": 2
+}

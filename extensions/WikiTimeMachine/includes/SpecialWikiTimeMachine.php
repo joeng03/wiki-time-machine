@@ -31,6 +31,7 @@ class SpecialWikiTimeMachine extends SpecialPage {
 			'before' => TimeInput::normalize( $req->getText( 'before' ) ),
 			'after' => TimeInput::normalize( $req->getText( 'after' ) ),
 			'question' => mb_substr( $req->getText( 'q' ), 0, 500 ),
+			'validat' => preg_match( '/^\d{4}-\d{2}-\d{2}$/', $req->getText( 'validat' ) ) ? $req->getText( 'validat' ) : null,
 		];
 
 		$articles = [];
@@ -66,6 +67,18 @@ class SpecialWikiTimeMachine extends SpecialPage {
 					$this->msg( 'wikitimemachine-ask' )->text() )
 			) .
 			Html::rawElement( 'div', [ 'id' => 'wtm-answer', 'class' => 'wtm-answer', 'aria-live' => 'polite' ], '' )
+		) );
+		$out->addHTML( Html::rawElement( 'section', [ 'id' => 'wtm-claims', 'class' => 'wtm-claims', 'hidden' => true ],
+			Html::element( 'h2', [], $this->msg( 'wikitimemachine-claims-heading' )->text() ) .
+			Html::element( 'p', [ 'class' => 'wtm-hint' ], $this->msg( 'wikitimemachine-claims-intro' )->text() ) .
+			Html::rawElement( 'div', [ 'class' => 'wtm-ask-row' ],
+				Html::element( 'label', [ 'for' => 'wtm-validat' ], $this->msg( 'wikitimemachine-claims-validat' )->text() ) .
+				Html::element( 'input', [ 'id' => 'wtm-validat', 'type' => 'date', 'value' => $state['validat'] ?? '' ] ) .
+				Html::element( 'button', [ 'id' => 'wtm-claims-button', 'type' => 'button', 'class' => 'cdx-button' ],
+					$this->msg( 'wikitimemachine-claims-check' )->text() )
+			) .
+			Html::element( 'p', [ 'class' => 'wtm-hint' ], $this->msg( 'wikitimemachine-claims-validat-help' )->text() ) .
+			Html::rawElement( 'div', [ 'id' => 'wtm-claims-result', 'aria-live' => 'polite' ], '' )
 		) );
 		$out->addHTML( Html::rawElement( 'section', [ 'id' => 'wtm-diff', 'class' => 'wtm-diff' ], '' ) );
 	}

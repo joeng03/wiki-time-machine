@@ -46,5 +46,21 @@
 	"wikitimemachine-side-before": "Interface text for Special:WikiTimeMachine (side-before).",
 	"wikitimemachine-side-after": "Interface text for Special:WikiTimeMachine (side-after).",
 	"wikitimemachine-pick-article": "Interface text for Special:WikiTimeMachine (pick-article).",
-	"wikitimemachine-cites": "Interface text for Special:WikiTimeMachine (cites)."
+	"wikitimemachine-cites": "Interface text for Special:WikiTimeMachine (cites).",
+	"wikitimemachine-claims-heading": "Interface text for the bitemporal claims panel (claims-heading).",
+	"wikitimemachine-claims-intro": "Interface text for the bitemporal claims panel (claims-intro).",
+	"wikitimemachine-claims-validat": "Interface text for the bitemporal claims panel (claims-validat).",
+	"wikitimemachine-claims-check": "Interface text for the bitemporal claims panel (claims-check).",
+	"wikitimemachine-claims-asof": "Parameters: $1 - requested UTC date/time (system time).",
+	"wikitimemachine-claims-none": "Interface text for the bitemporal claims panel (claims-none).",
+	"wikitimemachine-claims-history": "Interface text for the bitemporal claims panel (claims-history).",
+	"wikitimemachine-claims-history-cols": "Pipe-separated column headers; keep three pipes.",
+	"wikitimemachine-claims-status-ongoing": "Interface text for the bitemporal claims panel (claims-status-ongoing).",
+	"wikitimemachine-claims-status-ended": "Interface text for the bitemporal claims panel (claims-status-ended).",
+	"wikitimemachine-claims-status-unknown": "Interface text for the bitemporal claims panel (claims-status-unknown).",
+	"wikitimemachine-claims-extractor-infobox": "Interface text for the bitemporal claims panel (claims-extractor-infobox).",
+	"wikitimemachine-claims-extractor-llm": "Interface text for the bitemporal claims panel (claims-extractor-llm).",
+	"wikitimemachine-claims-sql": "Interface text for the bitemporal claims panel (claims-sql).",
+	"wikitimemachine-claims-unavailable": "Interface text for the bitemporal claims panel (claims-unavailable).",
+	"wikitimemachine-claims-validat-help": "Interface text for the bitemporal claims panel (claims-validat-help)."
 }

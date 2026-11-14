@@ -13,7 +13,8 @@ from wtm.embed import HashEmbedder
 TEST_DB = os.environ.get("WTM_TEST_DB", "wtm_test")
 SQL = os.path.join(os.environ.get("WTM_SQL_DIR", "/app/sql"), "wtm_schema.sql")
 TABLES = ["wiki_page", "wiki_revision", "wiki_fetch_window", "wiki_build", "wiki_active_build", "wiki_coverage",
-          "wiki_snapshot", "wiki_revision_text", "wiki_chunk", "wiki_revision_chunk", "corpus_passage"]
+          "wiki_snapshot", "wiki_revision_text", "wiki_chunk", "wiki_revision_chunk", "corpus_passage",
+          "wiki_claim", "wiki_revision_claim", "wiki_claim_extraction", "wiki_claim_build", "wiki_claim_snapshot"]
 
 
 @pytest.fixture()

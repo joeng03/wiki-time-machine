@@ -37,6 +37,7 @@ services:
       WTM_LLM_MAX_TOKENS: ${WTM_LLM_MAX_TOKENS:-6000}
       WTM_LLM_EXTRA_BODY: ${WTM_LLM_EXTRA_BODY:-}
       WTM_LLM_STRUCTURED: ${WTM_LLM_STRUCTURED:-1}
+      WTM_LLM_EXTRACT_EXTRA_BODY: ${WTM_LLM_EXTRACT_EXTRA_BODY:-{"chat_template_kwargs":{"enable_thinking":false}}}
       HF_HOME: /cache/hf
     volumes:
       - ./extensions/WikiTimeMachine/fixtures:/app/fixtures

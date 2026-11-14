@@ -75,7 +75,18 @@ def health():
 def articles(q: str = Query("", max_length=200)):
     with _db() as conn:
         build_id = pinned_build(conn)
-        return {"build_id": build_id, "articles": list_articles(conn, build_id, q)}
+        arts = list_articles(conn, build_id, q)
+        from .claims import active_claim_build
+        cbid = active_claim_build(conn, build_id)
+        with conn.cursor() as cur:
+            for a in arts:
+                n = 0
+                if cbid:
+                    cur.execute("SELECT COUNT(*) n FROM wiki_claim_snapshot FOR SYSTEM_TIME ALL WHERE claim_build_id=%s "
+                                "AND wiki_id=%s AND page_id=%s", (cbid, a["wiki_id"], a["page_id"]))
+                    n = cur.fetchone()["n"]
+                a["claim_rows"] = n
+        return {"build_id": build_id, "articles": arts}
 
 
 @app.get("/snapshot")
@@ -162,6 +173,35 @@ def ask(body: AskBody):
             sides[key] = {"status": "evidence"}
     return {"build_id": build_id, "question": body.question, "date_only_end_of_day": date_only,
             "before": sb, "after": sa, "evidence": ev, "sides": sides, "generation": gen, "timing_ms": timings}
+
+
+@app.get("/claims")
+def claims(wiki_id: str, page_id: int, before: str, after: str, valid_at: str = Query(..., max_length=10)):
+    """Bitemporal: as of each side's Wikipedia time, who did the article say held the office on `valid_at`?"""
+    from datetime import date as _date
+
+    from .claims import BITEMPORAL_SQL, active_claim_build, claim_history, claims_as_of
+    try:
+        d = _date.fromisoformat(valid_at)
+    except ValueError:
+        raise HTTPException(400, detail={"code": "invalid_date", "message": "valid_at must be YYYY-MM-DD"})
+    with _db() as conn:
+        build_id, sb, sa, date_only = _resolve_pair(conn, wiki_id, page_id, before, after, sections=False)
+        cbid = active_claim_build(conn, build_id)
+        out = {"build_id": build_id, "claim_build_id": cbid, "valid_at": d.isoformat(), "sql": BITEMPORAL_SQL, "sides": {}}
+        if cbid is None:
+            return {**out, "status": "no_claims"}
+        for key, side in (("before", sb), ("after", sa)):
+            entry = {"snapshot": {k: side.get(k) for k in ("status", "requested_at", "revision_id", "source_timestamp", "url", "message")}}
+            if side["status"] in ("ok", "unavailable", "no_revision"):
+                t, _ = parse_utc(before if key == "before" else after)
+                entry["claims"] = claims_as_of(conn, build_id, cbid, wiki_id, page_id, t, d,
+                                               side.get("revision_id") if side["status"] == "ok" else None, side.get("url"))
+            else:
+                entry["claims"] = None
+            out["sides"][key] = entry
+        out["history"] = claim_history(conn, cbid, wiki_id, page_id, d)
+    return {**out, "status": "ok"}
 
 
 @app.get("/search")

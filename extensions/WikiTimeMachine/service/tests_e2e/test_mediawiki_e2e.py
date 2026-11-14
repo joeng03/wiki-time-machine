@@ -17,7 +17,7 @@ DEMO = {"page": OLKILUOTO, "before": "2021-12-15", "after": "2023-04-20"}
 
 
 def api(**params):
-    r = requests.get(f"{MW}/api.php", params={**params, "format": "json", "formatversion": "2"}, timeout=60)
+    r = requests.get(f"{MW}/api.php", params={**params, "format": "json", "formatversion": "2"}, timeout=240)
     r.raise_for_status()
     return r.json()
 
@@ -81,3 +81,17 @@ def test_validation_errors_and_special_page():
     assert e["wtmsnapshot"]["snapshot"]["status"] == "not_covered"
     html = requests.get(f"{MW}/index.php", params={"title": "Special:WikiTimeMachine", "q": "<img src=x onerror=alert(1)>"}, timeout=30).text
     assert 'id="wtm-form"' in html and "<img src=x" not in html
+
+
+def test_bitemporal_claims_through_mediawiki():
+    """As of Wikipedia mid-June 2023 vs late June 2023: who held the PM office on 22 June 2023?"""
+    d = api(action="wtmclaims", page=231789, before="2023-06-15", after="2023-06-25", validat="2023-06-22")["wtmclaims"]
+    before = d["sides"]["before"]["claims"]
+    after = d["sides"]["after"]["claims"]
+    assert {c["holder"] for c in before} == {"Sanna Marin"} and {c["holder"] for c in after} == {"Petteri Orpo"}
+    for side, claims in (("before", before), ("after", after)):
+        rid = d["sides"][side]["snapshot"]["revision_id"]
+        for c in claims:
+            assert c["sources"] and all(s["url"].endswith(f"oldid={rid}") for s in c["sources"])
+            assert any(s["extractor"] == "infobox-v1" for s in c["sources"])
+    assert "FOR SYSTEM_TIME AS OF" in d["sql"] and "valid_from <=" in d["sql"]

@@ -27,3 +27,10 @@ $wgWikiTimeMachineExamples = [
 // Organizer dataset (MariaDB "M", Finnish Wikipedia full history) example.
 $wgWikiTimeMachineExamples[] = [ 'label' => 'Erik Edner (fiwiki, organizer M dataset)', 'wiki' => 'fiwiki', 'page' => 186,
 	'before' => '2008-01-01', 'after' => '2026-09-30', 'question' => 'Kuka oli Erik Edner? / Who was Erik Edner?' ];
+// Bitemporal claims examples (Prime Minister / President of Finland handovers).
+$wgWikiTimeMachineExamples[] = [ 'label' => 'PM of Finland: Marin → Orpo (bitemporal)', 'page' => 231789,
+	'before' => '2023-06-15', 'after' => '2023-06-25', 'validat' => '2023-06-22',
+	'question' => 'Who was the prime minister according to each version?' ];
+$wgWikiTimeMachineExamples[] = [ 'label' => 'President of Finland: Niinistö → Stubb (bitemporal)', 'page' => 196964,
+	'before' => '2024-02-20', 'after' => '2024-03-05', 'validat' => '2024-03-05',
+	'question' => 'Who was the president according to each version?' ];

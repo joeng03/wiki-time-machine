@@ -240,6 +240,7 @@
 			);
 			renderDiff( data );
 			$ask.prop( 'hidden', false );
+			maybeShowClaims();
 			validate();
 			if ( state.question && $question.val() === state.question && state.autoAsk ) {
 				state.autoAsk = false;
@@ -360,6 +361,103 @@
 		} );
 	}
 
+	// ---------------------------------------------------------------- bitemporal claims
+
+	function claimItem( c ) {
+		var li = el( 'li', 'wtm-claim' );
+		li.appendChild( el( 'strong', null, c.holder ) );
+		// eslint-disable-next-line mediawiki/msg-doc
+		li.appendChild( document.createTextNode( ' — ' + c.display + ' (' + mw.msg( 'wikitimemachine-claims-status-' + c.end_status ) + ')' ) );
+		c.sources.forEach( function ( s ) {
+			var src = el( 'div', 'wtm-claim-src' );
+			var label = s.extractor.indexOf( 'llm:' ) === 0 ? mw.msg( 'wikitimemachine-claims-extractor-llm' ) :
+				mw.msg( 'wikitimemachine-claims-extractor-infobox' );
+			src.appendChild( el( 'span', 'wtm-dist', label + ' · ' ) );
+			src.appendChild( link( s.url, 'oldid=' + s.revision_id ) );
+			src.appendChild( el( 'blockquote', null, s.excerpt ) );
+			li.appendChild( src );
+		} );
+		return li;
+	}
+
+	function renderClaims( data ) {
+		var root = document.getElementById( 'wtm-claims-result' );
+		$( root ).empty();
+		var cols = el( 'div', 'wtm-sides' );
+		[ 'before', 'after' ].forEach( function ( side ) {
+			var s = data.sides[ side ], card = el( 'article', 'wtm-side' );
+			card.appendChild( el( 'h3', null, mw.msg( 'wikitimemachine-claims-asof', fmt( s.snapshot.requested_at ) ) ) );
+			if ( s.snapshot.revision_id ) {
+				var p = el( 'p', 'wtm-resolved' );
+				p.appendChild( link( s.snapshot.url, mw.msg( 'wikitimemachine-resolved', s.snapshot.revision_id, fmt( s.snapshot.source_timestamp ) ) ) );
+				card.appendChild( p );
+			}
+			if ( s.claims === null ) {
+				card.appendChild( el( 'p', 'wtm-empty', mw.msg( 'wikitimemachine-claims-unavailable', s.snapshot.message || s.snapshot.status ) ) );
+			} else if ( !s.claims.length ) {
+				card.appendChild( el( 'p', 'wtm-empty', mw.msg( 'wikitimemachine-claims-none' ) ) );
+			} else {
+				var ul = el( 'ul', 'wtm-claim-list' );
+				s.claims.forEach( function ( c ) {
+					ul.appendChild( claimItem( c ) );
+				} );
+				card.appendChild( ul );
+			}
+			cols.appendChild( card );
+		} );
+		root.appendChild( cols );
+		if ( data.history && data.history.length ) {
+			root.appendChild( el( 'h3', null, mw.msg( 'wikitimemachine-claims-history' ) ) );
+			var table = el( 'table', 'wikitable wtm-claim-history' ), thead = el( 'tr' );
+			mw.msg( 'wikitimemachine-claims-history-cols' ).split( '|' ).forEach( function ( h ) {
+				thead.appendChild( el( 'th', null, h ) );
+			} );
+			table.appendChild( thead );
+			data.history.forEach( function ( h ) {
+				var tr = el( 'tr' );
+				[ fmt( h.asserted_from ), fmt( h.asserted_until ), h.holder, h.display ].forEach( function ( v ) {
+					tr.appendChild( el( 'td', null, v ) );
+				} );
+				table.appendChild( tr );
+			} );
+			root.appendChild( table );
+		}
+		var det = el( 'details', 'wtm-sql' );
+		det.appendChild( el( 'summary', null, mw.msg( 'wikitimemachine-claims-sql' ) ) );
+		det.appendChild( el( 'pre', null, data.sql ) );
+		root.appendChild( det );
+	}
+
+	function checkClaims() {
+		var v = $( '#wtm-validat' ).val();
+		if ( !/^\d{4}-\d{2}-\d{2}$/.test( v ) || !validate() ) {
+			return;
+		}
+		var url = new URL( window.location.href );
+		url.searchParams.set( 'validat', v );
+		window.history.replaceState( null, '', url.toString() );
+		$( '#wtm-claims-result' ).empty().append( el( 'p', 'wtm-status', mw.msg( 'wikitimemachine-loading' ) ) );
+		api.get( {
+			action: 'wtmclaims', formatversion: 2, wiki: wikiOf(), page: $article.val(),
+			before: toUtc( $before.val() ), after: toUtc( $after.val() ), validat: v
+		}, { timeout: 30000 } ).then( function ( res ) {
+			renderClaims( res.wtmclaims );
+		}, function ( code, result ) {
+			$( '#wtm-claims-result' ).empty().append( el( 'p', 'wtm-empty', mw.msg( 'wikitimemachine-compare-error', errorText( code, result ) ) ) );
+		} );
+	}
+
+	function maybeShowClaims() {
+		var art = selectedArticle(), show = !!( art && art.claim_rows > 0 && lastCompare );
+		$( '#wtm-claims' ).prop( 'hidden', !show );
+		if ( show ) {
+			if ( !$( '#wtm-validat' ).val() ) {
+				$( '#wtm-validat' ).val( toUtc( $after.val() ).slice( 0, 10 ) );
+			}
+			checkClaims();
+		}
+	}
+
 	function renderExamples() {
 		var box = document.getElementById( 'wtm-examples' );
 		( cfg.examples || [] ).forEach( function ( ex ) {
@@ -372,6 +470,7 @@
 				$before.val( fromUtc( ex.before ) );
 				$after.val( fromUtc( ex.after ) );
 				$question.val( ex.question || '' );
+				$( '#wtm-validat' ).val( ex.validat || '' );
 				state.question = ex.question;
 				state.autoAsk = false;
 				compare();
@@ -402,6 +501,7 @@
 		} );
 		$article.add( $before ).add( $after ).on( 'change input', validate );
 		$askBtn.on( 'click', ask );
+		$( '#wtm-claims-button' ).on( 'click', checkClaims );
 		$question.on( 'keydown', function ( e ) {
 			if ( e.key === 'Enter' ) {
 				e.preventDefault();

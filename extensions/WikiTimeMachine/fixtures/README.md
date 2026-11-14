@@ -8,7 +8,7 @@ backward query for the predecessor strictly before each window). Editor identiti
 
 **Licence/attribution:** text by Wikipedia contributors, [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
 Every revision is available at `https://en.wikipedia.org/w/index.php?oldid=<revision_id>`.
-`wtm verify-links` re-fetched all 217 snapshot revisions on 2026-11-14 and every SHA-256 matched.
+`wtm verify-links` re-fetched the 217 snapshot revisions of the first three articles on 2026-11-14; every SHA-256 matched.
 
 | file | article (page id) | fetched (UTC) | windows [start, end) | revisions in window | API pages | predecessor | sha256 (file) |
 |---|---|---|---|---|---|---|---|
@@ -18,14 +18,24 @@ Every revision is available at `https://en.wikipedia.org/w/index.php?oldid=<revi
 |  |  |  | 2022-03-01T00:00:00Z → 2022-04-01T00:00:00Z | 10 | 2 | [1068858713] |  |
 |  |  |  | 2023-04-08T00:00:00Z → 2023-04-22T00:00:00Z | 64 | 8 | [1136539634] |  |
 | oodi.jsonl.gz | Helsinki Central Library Oodi (45223395) | 2026-11-14T10:54:05Z | 2018-11-01T00:00:00Z → 2019-01-20T00:00:00Z | 82 | 10 | [857748576] | 086efbe315bcf516… |
+| pm-finland.jsonl.gz | Prime Minister of Finland (231789) | 2026-11-14T11:36:02Z | 2019-12-01T00:00:00Z → 2019-12-20T00:00:00Z | 22 | 4 | [925734228] | e62320b70c35a070… |
+|  |  |  | 2023-06-01T00:00:00Z → 2023-07-01T00:00:00Z | 4 | 2 | [1157413357] |  |
+| president-finland.jsonl.gz | President of Finland (196964) | 2026-11-14T11:36:22Z | 2024-02-15T00:00:00Z → 2024-03-10T00:00:00Z | 12 | 3 | [1207282572] | f2093fe9999a6455… |
 
 Reproduce (network): `make fetch-demo` (needs `WTM_USER_AGENT`). Load offline: `make demo`.
 
 Format `wtm-capture/1`: gzip JSONL; line 1 manifest (source, request parameters, attribution), then `page`,
 `window` and `revision` records. The same format is produced by the organizer-dataset adapter.
 
+## `claims/` — model output cache (derived from the real fixtures)
+
+`nemotron-extractions.jsonl.gz`: 37 validated claim-extraction results from `nemotron-3.5-super-vl`
+(prompt `tenure-v1`, schema-constrained, reasoning off), 46 accepted / 8 rejected claims,
+keyed by chunk text hash + parser version so `make demo` reproduces the LLM claims offline without an API key.
+Regenerate with `make claims` (needs `WTM_LLM_*`).
+
 ## `synthetic/` — SYNTHETIC deterministic CI fixtures (NOT Wikipedia data)
 
 `temporal-isolation.jsonl`: a future passage that is highly relevant to the test question, shared text across
 revisions, a same-second tie, hidden text and a failed (unpublished) window. Used by `tests/test_fixture_file.py`;
-further synthetic cases are built inline in `tests/`.
+further synthetic cases (including the bitemporal claim scenarios) are built inline in `tests/`.

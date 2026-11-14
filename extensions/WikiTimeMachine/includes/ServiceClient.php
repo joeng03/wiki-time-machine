@@ -53,6 +53,13 @@ class ServiceClient {
 		], $this->askTimeout );
 	}
 
+	public function claims( int $pageId, string $before, string $after, string $validAt, ?string $wikiId = null ): array {
+		return $this->request( 'GET', '/claims', [
+			'wiki_id' => $wikiId ?? $this->wikiId, 'page_id' => $pageId, 'before' => $before, 'after' => $after,
+			'valid_at' => $validAt,
+		], null, $this->timeout );
+	}
+
 	/**
 	 * @throws ServiceException
 	 */

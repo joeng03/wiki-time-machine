@@ -58,6 +58,12 @@
 			"services": [
 				"WikiTimeMachine.ServiceClient"
 			]
+		},
+		"wtmclaims": {
+			"class": "MediaWiki\\Extension\\WikiTimeMachine\\Api\\ApiWtmClaims",
+			"services": [
+				"WikiTimeMachine.ServiceClient"
+			]
 		}
 	},
 	"ServiceWiringFiles": [
@@ -133,7 +139,22 @@
 				"wikitimemachine-side-before",
 				"wikitimemachine-side-after",
 				"wikitimemachine-pick-article",
-				"wikitimemachine-cites"
+				"wikitimemachine-cites",
+				"wikitimemachine-claims-heading",
+				"wikitimemachine-claims-intro",
+				"wikitimemachine-claims-validat",
+				"wikitimemachine-claims-check",
+				"wikitimemachine-claims-asof",
+				"wikitimemachine-claims-none",
+				"wikitimemachine-claims-history",
+				"wikitimemachine-claims-history-cols",
+				"wikitimemachine-claims-status-ongoing",
+				"wikitimemachine-claims-status-ended",
+				"wikitimemachine-claims-status-unknown",
+				"wikitimemachine-claims-extractor-infobox",
+				"wikitimemachine-claims-extractor-llm",
+				"wikitimemachine-claims-sql",
+				"wikitimemachine-claims-unavailable"
 			]
 		}
 	},

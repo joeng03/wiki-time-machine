@@ -87,6 +87,60 @@ def cmd_corpus(args):
                                  limit_articles=args.limit, max_passages=args.max_passages)))
 
 
+def cmd_claims(args):
+    """Extract tenure claims for the active build and publish the bitemporal projection."""
+    import re
+    from .api import _llm
+    from .claims import INFOBOX_EXTRACTOR, extract_for_build, llm_extractor_id, project_claims
+    from .snapshots import pinned_build
+    conn = connect("importer", insert_history=True)
+    build_id = pinned_build(conn)
+    with conn.cursor() as cur:
+        if args.page_id:
+            pages = [(args.wiki, p) for p in args.page_id]
+        else:  # pages whose snapshot revisions carry an officeholder-style infobox
+            cur.execute("SELECT DISTINCT s.wiki_id, s.page_id, r.wikitext FROM wiki_snapshot FOR SYSTEM_TIME ALL s JOIN wiki_revision r "
+                        "ON r.wiki_id=s.wiki_id AND r.revision_id=s.revision_id WHERE s.build_id=%s AND s.content_available", (build_id,))
+            pat = re.compile(r"\{\{\s*Infobox[ _](official post|officeholder|political post)", re.I)
+            pages = sorted({(r["wiki_id"], r["page_id"]) for r in cur.fetchall() if pat.search(r["wikitext"] or "")})
+    if args.import_cache:
+        from .claims import import_extraction_cache
+        print("imported LLM extraction cache:", json.dumps(import_extraction_cache(conn, args.import_cache)))
+    llm = _llm() if args.llm else None
+    if llm is not None and hasattr(llm, "extra_body"):
+        # Extraction is copy-and-classify under a strict schema; reasoning mostly burns the token budget.
+        llm.extra_body = {**llm.extra_body, **json.loads(os.environ.get(
+            "WTM_LLM_EXTRACT_EXTRA_BODY", '{"chat_template_kwargs": {"enable_thinking": false}}'))}
+    model = settings().llm_model if llm else ""
+    print(f"build {build_id}: claim pages {pages}; LLM extractor {'on: ' + model if llm else 'off'}")
+    stats = extract_for_build(conn, build_id, pages, llm=llm, llm_model=model, concurrency=args.concurrency)
+    print(json.dumps(stats))
+    extractors = [INFOBOX_EXTRACTOR] + ([llm_extractor_id(model)] if llm else [])
+    if not llm and args.use_cached_llm:
+        with conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT extractor FROM wiki_claim_extraction WHERE status='ok'")
+            cached = [r["extractor"] for r in cur.fetchall()]
+        if cached:
+            # map cached (fixture) LLM claims onto revisions without calling a model
+            from .claims import extract_for_build as _efb
+
+            class _CacheOnly:
+                structured = False
+
+                def __call__(self, *a, **k):
+                    raise RuntimeError("cache-only mode: no model configured")
+            for ext in cached:
+                m = ext.split(":")[1]
+                _efb(conn, build_id, pages, llm=_CacheOnly(), llm_model=m, concurrency=1, log=lambda *_: None)
+                extractors.append(ext)
+            print("using cached LLM extractions:", cached)
+    if args.export_cache:
+        from .claims import export_extraction_cache
+        print("exported", export_extraction_cache(conn, args.export_cache), "LLM extraction results to", args.export_cache)
+    res = project_claims(conn, build_id, extractors)
+    print(json.dumps({k: v for k, v in res.items() if k != "validation"} | ({"checks": res["validation"]["checks"]} if "validation" in res else {})))
+
+
 def cmd_bench(args):
     from .bench import run, to_markdown
     conn = connect("reader")
@@ -152,6 +206,15 @@ def main(argv=None):
     s = sub.add_parser("corpus", help="load organizer S articles parquet into corpus_passage")
     s.add_argument("--file", required=True); s.add_argument("--limit", type=int); s.add_argument("--max-passages", type=int, default=6)
     s.add_argument("--reset", action="store_true"); s.add_argument("--embedder"); s.set_defaults(f=cmd_corpus)
+    s = sub.add_parser("claims", help="bitemporal tenure claims for the active build")
+    s.add_argument("--wiki", default="enwiki"); s.add_argument("--page-id", type=int, action="append")
+    s.add_argument("--llm", action=argparse.BooleanOptionalAction, default=True, help="use the configured LLM extractor if any")
+    s.add_argument("--concurrency", type=int, default=4)
+    s.add_argument("--import-cache", help="load a portable LLM extraction cache (fixture) before extracting")
+    s.add_argument("--export-cache", help="write the validated LLM extraction cache to a fixture file")
+    s.add_argument("--use-cached-llm", action=argparse.BooleanOptionalAction, default=True,
+                   help="without a model, still project cached LLM claims")
+    s.set_defaults(f=cmd_claims)
     s = sub.add_parser("bench"); s.add_argument("--label", required=True); s.add_argument("--n", type=int, default=200)
     s.add_argument("--out"); s.add_argument("--embedder"); s.set_defaults(f=cmd_bench)
     s = sub.add_parser("verify-links"); s.add_argument("--limit", type=int, default=50); s.set_defaults(f=cmd_verify_links)

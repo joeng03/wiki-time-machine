@@ -1,5 +1,9 @@
 {
-	"@metadata": { "authors": [ "Junction hackathon team" ] },
+	"@metadata": {
+		"authors": [
+			"Junction hackathon team"
+		]
+	},
 	"wikitimemachine": "Wikipedia Time Machine",
 	"wikitimemachine-desc": "Compare a Wikipedia article as it stood on two dates and ask what changed, with permanent revision citations.",
 	"wikitimemachine-intro": "Pick an article and two moments in time (UTC). You will see the article text as it stood at each moment, what changed between them, and can ask a question answered only from those two revisions.",
@@ -42,5 +46,21 @@
 	"wikitimemachine-side-before": "First date",
 	"wikitimemachine-side-after": "Second date",
 	"wikitimemachine-pick-article": "Choose an article",
-	"wikitimemachine-cites": "Sources:"
+	"wikitimemachine-cites": "Sources:",
+	"wikitimemachine-claims-heading": "Who held the office? (bitemporal claims)",
+	"wikitimemachine-claims-intro": "Two kinds of time: the date the office was held (choose below) and the moment Wikipedia said so (the two dates above). Claims are extracted from each revision's infobox and, if configured, by the language model from the prose; every claim keeps its exact source excerpt.",
+	"wikitimemachine-claims-validat": "Held office on (date)",
+	"wikitimemachine-claims-check": "Check",
+	"wikitimemachine-claims-asof": "According to Wikipedia as of $1",
+	"wikitimemachine-claims-none": "The article made no claim about who held the office on this date.",
+	"wikitimemachine-claims-history": "What Wikipedia said about this date over time",
+	"wikitimemachine-claims-history-cols": "Asserted from|Asserted until|Holder|Tenure as stated",
+	"wikitimemachine-claims-status-ongoing": "described as current",
+	"wikitimemachine-claims-status-ended": "end stated",
+	"wikitimemachine-claims-status-unknown": "end not stated",
+	"wikitimemachine-claims-extractor-infobox": "infobox",
+	"wikitimemachine-claims-extractor-llm": "extracted from prose by the language model",
+	"wikitimemachine-claims-sql": "Show the bitemporal SQL",
+	"wikitimemachine-claims-unavailable": "No claims for this side: $1",
+	"wikitimemachine-claims-validat-help": "Unknown dates are explicit: a tenure whose end is not stated only covers its stated start, and \"current\" claims are open-ended as of that revision."
 }

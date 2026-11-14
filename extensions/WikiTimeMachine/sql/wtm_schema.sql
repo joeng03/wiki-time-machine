@@ -157,3 +157,87 @@ CREATE TABLE IF NOT EXISTS corpus_passage (
     UNIQUE KEY uq_passage (dataset, lang, page_id, ordinal, embed_model),
     VECTOR INDEX idx_corpus_embedding (embedding) M=16 DISTANCE=cosine
 ) ENGINE=InnoDB;
+
+-- ============================================================ Bitemporal claims (stretch)
+-- Domain: officeholder tenures ("who held <office> when"), extracted per revision.
+-- Application time  = when the claim says the tenure applied: PERIOD FOR valid_period [valid_from, valid_to).
+-- System time       = when that claim appeared in Wikipedia: historical system period backfilled with
+--                     the revision timeline of the published snapshot build.
+-- Unknown/open dates are explicit: precision ENUM + sentinels 0001-01-01 (unknown start) and
+-- 9999-12-31 (ongoing or unknown end), never silently inferred.
+
+CREATE TABLE IF NOT EXISTS wiki_claim (
+    claim_id        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    claim_key       CHAR(64)        NOT NULL,
+    wiki_id         VARCHAR(32)     NOT NULL,
+    page_id         BIGINT UNSIGNED NOT NULL,
+    office          VARCHAR(255)    NOT NULL,
+    holder          VARCHAR(255)    NOT NULL,
+    valid_from      DATE            NOT NULL,
+    valid_to        DATE            NOT NULL,
+    from_precision  ENUM('day','month','year','unknown') NOT NULL,
+    to_precision    ENUM('day','month','year','unknown') NOT NULL,
+    end_status      ENUM('ended','ongoing','unknown')    NOT NULL,
+    PRIMARY KEY (claim_id),
+    UNIQUE KEY uq_claim (claim_key),
+    KEY idx_page (wiki_id, page_id),
+    CHECK (valid_from < valid_to)
+) ENGINE=InnoDB;
+
+-- Which revision asserts which claim, and the exact excerpt supporting it.
+CREATE TABLE IF NOT EXISTS wiki_revision_claim (
+    wiki_id      VARCHAR(32)     NOT NULL,
+    revision_id  BIGINT UNSIGNED NOT NULL,
+    claim_id     BIGINT UNSIGNED NOT NULL,
+    extractor    VARCHAR(96)     NOT NULL COMMENT 'infobox-v1 | llm:<model>:<prompt version>',
+    source_ref   VARCHAR(64)     NOT NULL COMMENT 'infobox | chunk:<chunk_id>',
+    excerpt      TEXT            NOT NULL,
+    PRIMARY KEY (wiki_id, revision_id, claim_id, extractor, source_ref),
+    KEY idx_claim (claim_id)
+) ENGINE=InnoDB;
+
+-- LLM extraction cache: one call per unique chunk and extractor version (shared text is extracted once).
+CREATE TABLE IF NOT EXISTS wiki_claim_extraction (
+    chunk_id      BIGINT UNSIGNED NOT NULL,
+    extractor     VARCHAR(96)     NOT NULL,
+    status        ENUM('ok','error') NOT NULL,
+    accepted      INT UNSIGNED    NOT NULL DEFAULT 0,
+    rejected      INT UNSIGNED    NOT NULL DEFAULT 0,
+    result        MEDIUMTEXT      NULL COMMENT 'validated claims JSON + rejection reasons',
+    created_at    DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (chunk_id, extractor)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS wiki_claim_build (
+    claim_build_id  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    build_id        BIGINT UNSIGNED NOT NULL,
+    fingerprint     CHAR(64)        NOT NULL,
+    extractors      VARCHAR(255)    NOT NULL,
+    status          ENUM('building','published','failed','superseded') NOT NULL,
+    rows_written    INT UNSIGNED    NOT NULL DEFAULT 0,
+    validation      JSON            NULL,
+    created_at      DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (claim_build_id),
+    KEY idx_build (build_id, status)
+) ENGINE=InnoDB;
+
+-- The bitemporal table: application-time period + system versioning.
+CREATE TABLE IF NOT EXISTS wiki_claim_snapshot (
+    claim_build_id  BIGINT UNSIGNED NOT NULL,
+    wiki_id         VARCHAR(32)     NOT NULL,
+    page_id         BIGINT UNSIGNED NOT NULL,
+    claim_id        BIGINT UNSIGNED NOT NULL,
+    office          VARCHAR(255)    NOT NULL,
+    holder          VARCHAR(255)    NOT NULL,
+    valid_from      DATE            NOT NULL,
+    valid_to        DATE            NOT NULL,
+    from_precision  ENUM('day','month','year','unknown') NOT NULL,
+    to_precision    ENUM('day','month','year','unknown') NOT NULL,
+    end_status      ENUM('ended','ongoing','unknown')    NOT NULL,
+    PERIOD FOR valid_period (valid_from, valid_to),
+    row_start TIMESTAMP(6) GENERATED ALWAYS AS ROW START,
+    row_end   TIMESTAMP(6) GENERATED ALWAYS AS ROW END,
+    PERIOD FOR SYSTEM_TIME (row_start, row_end),
+    PRIMARY KEY (claim_build_id, wiki_id, page_id, claim_id),
+    KEY idx_valid (claim_build_id, wiki_id, page_id, valid_from, valid_to)
+) ENGINE=InnoDB WITH SYSTEM VERSIONING;

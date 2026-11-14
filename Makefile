@@ -2,7 +2,7 @@
 DC := docker compose
 SVC := $(DC) exec -T service
 
-.PHONY: setup up down migrate demo fetch-demo test test-db test-e2e test-php bench corpus doctor verify-links
+.PHONY: claims setup up down migrate demo fetch-demo test test-db test-e2e test-php bench corpus doctor verify-links
 
 setup:            ## clone pinned MediaWiki 1.43.11 + Vector, composer install, start stack, install wiki
 	./scripts/setup-mediawiki.sh
@@ -24,7 +24,11 @@ migrate:          ## apply the app schema (separate from the MediaWiki schema)
 demo:             ## offline: load the shipped real-data fixtures, build + validate + publish the SVT projection
 	$(SVC) python -m wtm.cli load '/app/fixtures/real/*.jsonl.gz'
 	$(SVC) python -m wtm.cli build
+	$(SVC) python -m wtm.cli claims --no-llm --import-cache /app/fixtures/claims/nemotron-extractions.jsonl.gz
 	@echo "Open http://localhost:8080/index.php/Special:WikiTimeMachine"
+
+claims:           ## (re)extract bitemporal tenure claims; uses the configured LLM (Nemotron) if WTM_LLM_* is set
+	$(SVC) python -m wtm.cli claims --concurrency 6 --export-cache /app/fixtures/claims/nemotron-extractions.jsonl.gz
 
 fetch-demo:       ## live re-capture of the demo fixtures (needs WTM_USER_AGENT in .env)
 	$(SVC) python -m wtm.cli fetch --title "Olkiluoto Nuclear Power Plant" --rvlimit 10 \
@@ -35,6 +39,11 @@ fetch-demo:       ## live re-capture of the demo fixtures (needs WTM_USER_AGENT 
 	  --out /app/fixtures/real/finland-nato.jsonl.gz
 	$(SVC) python -m wtm.cli fetch --title "Helsinki Central Library Oodi" --rvlimit 10 \
 	  --window 2018-11-01T00:00:00Z/2019-01-20T00:00:00Z --out /app/fixtures/real/oodi.jsonl.gz
+	$(SVC) python -m wtm.cli fetch --title "Prime Minister of Finland" --rvlimit 10 \
+	  --window 2019-12-01T00:00:00Z/2019-12-20T00:00:00Z --window 2023-06-01T00:00:00Z/2023-07-01T00:00:00Z \
+	  --out /app/fixtures/real/pm-finland.jsonl.gz
+	$(SVC) python -m wtm.cli fetch --title "President of Finland" --rvlimit 10 \
+	  --window 2024-02-15T00:00:00Z/2024-03-10T00:00:00Z --out /app/fixtures/real/president-finland.jsonl.gz
 
 test: test-db test-php   ## unit + DB integration tests (synthetic fixtures, hash embedder; no network)
 

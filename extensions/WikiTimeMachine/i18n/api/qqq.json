@@ -22,5 +22,11 @@
 	"apierror-wikitimemachine-input": "Error message. Parameters: $1 - details.",
 	"apihelp-wtmsnapshot-param-wiki": "{{doc-apihelp-param|wtmsnapshot|wiki}}",
 	"apihelp-wtmcompare-param-wiki": "{{doc-apihelp-param|wtmcompare|wiki}}",
-	"apihelp-wtmask-param-wiki": "{{doc-apihelp-param|wtmask|wiki}}"
+	"apihelp-wtmask-param-wiki": "{{doc-apihelp-param|wtmask|wiki}}",
+	"apihelp-wtmclaims-summary": "{{doc-apihelp-summary|wtmclaims}}",
+	"apihelp-wtmclaims-param-wiki": "{{doc-apihelp-param|wtmclaims|wiki}}",
+	"apihelp-wtmclaims-param-page": "{{doc-apihelp-param|wtmclaims|page}}",
+	"apihelp-wtmclaims-param-before": "{{doc-apihelp-param|wtmclaims|before}}",
+	"apihelp-wtmclaims-param-after": "{{doc-apihelp-param|wtmclaims|after}}",
+	"apihelp-wtmclaims-param-validat": "{{doc-apihelp-param|wtmclaims|validat}}"
 }

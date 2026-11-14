@@ -1,0 +1,19 @@
+app = "wiki-time-machine-joeng03-api"
+primary_region = "arn"
+
+[build]
+  dockerfile = "docker/fly/service.Dockerfile"
+
+[env]
+  WTM_DB_HOST = "wiki-time-machine-joeng03-db.internal"
+  WTM_DB_NAME = "wtm"
+  WTM_EMBEDDER = "minilm"
+  HF_HOME = "/cache/hf"
+
+[[mounts]]
+  source = "hfcache"
+  destination = "/cache"
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "2gb"

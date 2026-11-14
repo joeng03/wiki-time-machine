@@ -28,5 +28,10 @@
 	"apihelp-wtmclaims-param-page": "{{doc-apihelp-param|wtmclaims|page}}",
 	"apihelp-wtmclaims-param-before": "{{doc-apihelp-param|wtmclaims|before}}",
 	"apihelp-wtmclaims-param-after": "{{doc-apihelp-param|wtmclaims|after}}",
-	"apihelp-wtmclaims-param-validat": "{{doc-apihelp-param|wtmclaims|validat}}"
+	"apihelp-wtmclaims-param-validat": "{{doc-apihelp-param|wtmclaims|validat}}",
+	"apihelp-wtmtimeline-summary": "API documentation for wtmtimeline (summary).",
+	"apihelp-wtmtimeline-param-wiki": "API documentation for wtmtimeline (param-wiki).",
+	"apihelp-wtmtimeline-param-page": "API documentation for wtmtimeline (param-page).",
+	"apihelp-wtmtimeline-param-start": "API documentation for wtmtimeline (param-start).",
+	"apihelp-wtmtimeline-param-end": "API documentation for wtmtimeline (param-end)."
 }

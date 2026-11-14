@@ -64,6 +64,12 @@
 			"services": [
 				"WikiTimeMachine.ServiceClient"
 			]
+		},
+		"wtmtimeline": {
+			"class": "MediaWiki\\Extension\\WikiTimeMachine\\Api\\ApiWtmTimeline",
+			"services": [
+				"WikiTimeMachine.ServiceClient"
+			]
 		}
 	},
 	"ServiceWiringFiles": [
@@ -154,7 +160,32 @@
 				"wikitimemachine-claims-extractor-infobox",
 				"wikitimemachine-claims-extractor-llm",
 				"wikitimemachine-claims-sql",
-				"wikitimemachine-claims-unavailable"
+				"wikitimemachine-claims-unavailable",
+				"wikitimemachine-timeline-heading",
+				"wikitimemachine-timeline-help",
+				"wikitimemachine-timeline-select",
+				"wikitimemachine-timeline-prev",
+				"wikitimemachine-timeline-next",
+				"wikitimemachine-timeline-before",
+				"wikitimemachine-timeline-after",
+				"wikitimemachine-timeline-position",
+				"wikitimemachine-timeline-interval",
+				"wikitimemachine-timeline-empty",
+				"wikitimemachine-timeline-error",
+				"wikitimemachine-timeline-truncated",
+				"wikitimemachine-timeline-unavailable",
+				"wikitimemachine-timeline-no-claims",
+				"wikitimemachine-timeline-selected-claims",
+				"wikitimemachine-evolution-heading",
+				"wikitimemachine-evolution-help",
+				"wikitimemachine-evolution-boundary",
+				"wikitimemachine-evolution-initial",
+				"wikitimemachine-evolution-added",
+				"wikitimemachine-evolution-removed",
+				"wikitimemachine-evolution-compare",
+				"wikitimemachine-evolution-sources",
+				"wikitimemachine-evolution-empty",
+				"wikitimemachine-evolution-unavailable"
 			]
 		}
 	},

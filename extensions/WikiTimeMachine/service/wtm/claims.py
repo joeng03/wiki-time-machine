@@ -583,6 +583,42 @@ def claims_as_of(conn, build_id: int, cbid: int, wiki_id: str, page_id: int, as_
     return out
 
 
+def attach_timeline_claims(conn, build_id: int, cbid: int, wiki_id: str, page_id: int,
+                          states: list[dict]) -> None:
+    """Attach only published claims, with evidence from each timeline revision itself."""
+    if not states:
+        return
+    with conn.cursor() as cur:
+        cur.execute("SELECT extractors FROM wiki_claim_build WHERE claim_build_id=%s", (cbid,))
+        extractors = cur.fetchone()["extractors"].split(",")
+        revision_ids = sorted({s["revision_id"] for s in states})
+        ids = ",".join(["%s"] * len(revision_ids))
+        ex = ",".join(["%s"] * len(extractors))
+        cur.execute(
+            "SELECT s.revision_id, c.*, rc.extractor, rc.excerpt FROM wiki_snapshot FOR SYSTEM_TIME ALL s "
+            "JOIN wiki_claim_snapshot FOR SYSTEM_TIME ALL c ON c.wiki_id=s.wiki_id AND c.page_id=s.page_id "
+            "AND c.row_start<=s.row_start AND c.row_end>s.row_start AND c.claim_build_id=%s "
+            "JOIN wiki_revision_claim rc ON rc.wiki_id=s.wiki_id AND rc.revision_id=s.revision_id "
+            "AND rc.claim_id=c.claim_id "
+            f"WHERE s.build_id=%s AND s.wiki_id=%s AND s.page_id=%s AND s.revision_id IN ({ids}) "
+            f"AND rc.extractor IN ({ex}) ORDER BY s.row_start, c.holder, c.claim_id, rc.extractor",
+            (cbid, build_id, wiki_id, page_id, *revision_ids, *extractors))
+        by_revision = {}
+        for r in cur.fetchall():
+            claims = by_revision.setdefault(r["revision_id"], {})
+            claim = claims.setdefault(r["claim_id"], {
+                "claim_id": r["claim_id"], "office": r["office"], "holder": r["holder"],
+                "display": fmt_range(r), "end_status": r["end_status"], "sources": []})
+            source = {"extractor": r["extractor"], "excerpt": r["excerpt"], "revision_id": r["revision_id"]}
+            if source not in claim["sources"]:
+                claim["sources"].append(source)
+    for state in states:
+        state["claims"] = list(by_revision.get(state["revision_id"], {}).values())
+        for claim in state["claims"]:
+            for source in claim["sources"]:
+                source["url"] = state["url"]
+
+
 def claim_history(conn, cbid: int, wiki_id: str, page_id: int, valid_at: date) -> list[dict]:
     with conn.cursor() as cur:
         cur.execute(HISTORY_SQL, (cbid, wiki_id, page_id, valid_at, valid_at))

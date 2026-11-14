@@ -90,7 +90,7 @@
     },
     {
       "name": "api",
-      "image": "registry.fly.io/wiki-time-machine-joeng03@sha256:cd99d220004d1b7328d250b4554fbb749a1065382055df20ab7a19d4c534d109",
+      "image": "registry.fly.io/wiki-time-machine-joeng03@sha256:095ed3ac6f0456dd443894f79caf2dc2c4c7b234392ab07045305dcaf1c8b0be",
       "cmd": [
         "uvicorn",
         "wtm.api:app",

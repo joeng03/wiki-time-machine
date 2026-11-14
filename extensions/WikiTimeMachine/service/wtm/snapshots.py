@@ -107,14 +107,15 @@ def list_articles(conn, build_id: int, q: str = "", limit: int = 50) -> list[dic
     return pages
 
 
-def timeline(conn, build_id: int, wiki_id: str, page_id: int, start: datetime, end: datetime) -> list[dict]:
+def timeline(conn, build_id: int, wiki_id: str, page_id: int, start: datetime, end: datetime,
+             limit: int = 1001) -> list[dict]:
     """Visible revision states over a range (FOR SYSTEM_TIME FROM ... TO ...)."""
     with conn.cursor() as cur:
         cur.execute("SELECT s.revision_id, s.content_available, s.row_start, s.row_end, r.revision_ts FROM wiki_snapshot "
                     "FOR SYSTEM_TIME FROM CAST(%s AS DATETIME(6)) TO CAST(%s AS DATETIME(6)) s "
                     "JOIN wiki_revision r ON r.wiki_id=s.wiki_id AND r.revision_id=s.revision_id "
-                    "WHERE s.build_id=%s AND s.wiki_id=%s AND s.page_id=%s ORDER BY s.row_start",
-                    (start, end, build_id, wiki_id, page_id))
+                    "WHERE s.build_id=%s AND s.wiki_id=%s AND s.page_id=%s ORDER BY s.row_start LIMIT %s",
+                    (start, end, build_id, wiki_id, page_id, limit))
         return [{"revision_id": r["revision_id"], "content_available": bool(r["content_available"]),
                  "start": iso(r["row_start"]), "end": iso(r["row_end"]), "source_timestamp": iso(r["revision_ts"])}
                 for r in cur.fetchall()]

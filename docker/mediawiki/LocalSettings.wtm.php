@@ -3,6 +3,15 @@
 // Local development settings for the WikiTimeMachine hackathon extension.
 wfLoadExtension( 'WikiTimeMachine' );
 
+// Branding for this demo wiki; installing the extension does not change other wikis' logos.
+$wtmBrandPath = $wgScriptPath . '/extensions/WikiTimeMachine/resources';
+$wgLogos = [
+	'1x' => $wtmBrandPath . '/logo.svg',
+	'icon' => $wtmBrandPath . '/logo.svg',
+	'wordmark' => [ 'src' => $wtmBrandPath . '/wordmark.svg', 'width' => 124, 'height' => 32 ],
+];
+$wgFavicon = $wtmBrandPath . '/logo.svg';
+
 // Internal URL of the Python retrieval service (not exposed to browsers).
 $wgWikiTimeMachineServiceUrl = 'http://service:8000';
 // Snapshot/diff requests and model-backed /ask requests have separate timeouts.
